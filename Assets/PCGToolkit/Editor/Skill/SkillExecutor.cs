@@ -1,4 +1,5 @@
 using UnityEngine;
+using PCGToolkit.Communication;
 
 namespace PCGToolkit.Skill
 {
@@ -18,7 +19,7 @@ namespace PCGToolkit.Skill
             var skill = SkillRegistry.GetSkill(skillName);
             if (skill == null)
             {
-                return $"{{ \"error\": \"Skill not found: {skillName}\" }}";
+                return AgentProtocol.CreateErrorResponse($"Skill not found: {skillName}");
             }
 
             return skill.Execute(parametersJson);

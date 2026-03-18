@@ -82,19 +82,24 @@ namespace PCGToolkit.Communication
             switch (request.Action)
             {
                 case "execute_skill":
-                    return skillExecutor.ExecuteSkill(request.SkillName, request.Parameters);
+                    return AgentProtocol.CreateSuccessResponse(
+                        skillExecutor.ExecuteSkill(request.SkillName, request.Parameters),
+                        request.RequestId);
 
                 case "list_skills":
-                    return skillExecutor.ListSkills();
+                    return AgentProtocol.CreateSuccessResponse(
+                        skillExecutor.ListSkills(), request.RequestId);
 
                 case "get_schema":
-                    return SkillSchemaExporter.ExportSingle(request.SkillName);
+                    return AgentProtocol.CreateSuccessResponse(
+                        SkillSchemaExporter.ExportSingle(request.SkillName), request.RequestId);
 
                 case "get_all_schemas":
-                    return SkillSchemaExporter.ExportAll();
+                    return AgentProtocol.CreateSuccessResponse(
+                        SkillSchemaExporter.ExportAll(), request.RequestId);
 
                 default:
-                    return AgentProtocol.CreateErrorResponse($"Unknown action: {request.Action}");
+                    return AgentProtocol.CreateErrorResponse($"Unknown action: {request.Action}", request.RequestId);
             }
         }
     }
