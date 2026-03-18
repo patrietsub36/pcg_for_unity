@@ -1,9 +1,11 @@
 using System.Collections.Generic;  
 using UnityEditor.Experimental.GraphView;  
+using UnityEditor.UIElements;  
 using UnityEngine;  
 using UnityEngine.UIElements;  
 using PCGToolkit.Core;  
-  
+using UnityEditor.UIElements;
+
 namespace PCGToolkit.Graph  
 {  
     public class PCGNodeVisual : Node  
@@ -18,6 +20,12 @@ namespace PCGToolkit.Graph
         private Label _executionTimeLabel;  
         private VisualElement _highlightBorder;  
   
+        // ---- 内联默认值编辑相关 ----  
+        private Dictionary<string, VisualElement> _portWidgets = new Dictionary<string, VisualElement>();  
+        private Dictionary<string, object> _portDefaultValues = new Dictionary<string, object>();  
+        private Dictionary<string, PCGParamSchema> _inputSchemas = new Dictionary<string, PCGParamSchema>();  
+  
+
         public void Initialize(IPCGNode pcgNode, Vector2 position)  
         {  
             PCGNode = pcgNode;  
@@ -26,41 +34,74 @@ namespace PCGToolkit.Graph
             tooltip = pcgNode.Description;  
   
             SetPosition(new Rect(position, Vector2.zero));  
-  
             SetCategoryColor(pcgNode.Category);  
   
             CreateInputPorts();  
             CreateOutputPorts();  
-  
-            // 创建底部执行时长 Label  
             CreateExecutionTimeLabel();  
-  
-            // 创建高亮边框覆盖层  
             CreateHighlightBorder();  
   
             RefreshExpandedState();  
             RefreshPorts();  
         }  
   
-        public void SetNodeId(string id)  
+        public void SetNodeId(string id) { NodeId = id; }  
+  
+        // ---- 内联默认值公共方法 ----  
+  
+        /// <summary>  
+        /// 获取所有端口的当前默认值（用于保存/执行）  
+        /// </summary>  
+        public Dictionary<string, object> GetPortDefaultValues()  
         {  
-            NodeId = id;  
+            return new Dictionary<string, object>(_portDefaultValues);  
+        }  
+  
+        /// <summary>  
+        /// 设置端口默认值（用于加载时恢复）  
+        /// </summary>  
+        public void SetPortDefaultValues(Dictionary<string, object> values)  
+        {  
+            if (values == null) return;  
+            foreach (var kvp in values)  
+            {  
+                _portDefaultValues[kvp.Key] = kvp.Value;  
+                // 更新 UI 控件的显示值  
+                UpdateWidgetValue(kvp.Key, kvp.Value);  
+            }  
+        }  
+  
+        /// <summary>  
+        /// 当端口连接状态变化时调用，显示/隐藏内联编辑器  
+        /// </summary>  
+        public void OnPortConnectionChanged(string portName, bool isConnected)  
+        {  
+            if (_portWidgets.TryGetValue(portName, out var widget))  
+            {  
+                widget.style.display = isConnected  
+                    ? DisplayStyle.None  
+                    : DisplayStyle.Flex;  
+            }  
+        }  
+  
+        /// <summary>  
+        /// 检查指定端口是否已连接  
+        /// </summary>  
+        public bool IsPortConnected(string portName)  
+        {  
+            if (inputPorts.TryGetValue(portName, out var port))  
+                return port.connected;  
+            return false;  
         }  
   
         // ---- 执行调试方法 ----  
   
-        /// <summary>  
-        /// 显示执行高亮（黄色发光边框）  
-        /// </summary>  
         public void SetHighlight(bool active)  
         {  
             if (_highlightBorder == null) return;  
             _highlightBorder.visible = active;  
         }  
   
-        /// <summary>  
-        /// 显示节点执行耗时  
-        /// </summary>  
         public void ShowExecutionTime(double milliseconds)  
         {  
             if (_executionTimeLabel == null) return;  
@@ -68,9 +109,6 @@ namespace PCGToolkit.Graph
             _executionTimeLabel.visible = true;  
         }  
   
-        /// <summary>  
-        /// 清除执行耗时显示  
-        /// </summary>  
         public void ClearExecutionTime()  
         {  
             if (_executionTimeLabel == null) return;  
@@ -78,28 +116,25 @@ namespace PCGToolkit.Graph
             _executionTimeLabel.visible = false;  
         }  
   
-        /// <summary>  
-        /// 显示执行错误状态（红色边框）  
-        /// </summary>  
         public void SetErrorState(bool hasError)  
         {  
             if (_highlightBorder == null) return;  
             if (hasError)  
             {  
-                _highlightBorder.style.borderTopColor = new StyleColor(new Color(1f, 0.2f, 0.2f, 0.9f));  
-                _highlightBorder.style.borderBottomColor = new StyleColor(new Color(1f, 0.2f, 0.2f, 0.9f));  
-                _highlightBorder.style.borderLeftColor = new StyleColor(new Color(1f, 0.2f, 0.2f, 0.9f));  
-                _highlightBorder.style.borderRightColor = new StyleColor(new Color(1f, 0.2f, 0.2f, 0.9f));  
+                var errorColor = new StyleColor(new Color(1f, 0.2f, 0.2f, 0.9f));  
+                _highlightBorder.style.borderTopColor = errorColor;  
+                _highlightBorder.style.borderBottomColor = errorColor;  
+                _highlightBorder.style.borderLeftColor = errorColor;  
+                _highlightBorder.style.borderRightColor = errorColor;  
                 _highlightBorder.visible = true;  
             }  
             else  
             {  
-                // 恢复为黄色高亮色  
-                var highlightColor = new Color(1f, 0.85f, 0.1f, 0.9f);  
-                _highlightBorder.style.borderTopColor = new StyleColor(highlightColor);  
-                _highlightBorder.style.borderBottomColor = new StyleColor(highlightColor);  
-                _highlightBorder.style.borderLeftColor = new StyleColor(highlightColor);  
-                _highlightBorder.style.borderRightColor = new StyleColor(highlightColor);  
+                var highlightColor = new StyleColor(new Color(1f, 0.85f, 0.1f, 0.9f));  
+                _highlightBorder.style.borderTopColor = highlightColor;  
+                _highlightBorder.style.borderBottomColor = highlightColor;  
+                _highlightBorder.style.borderLeftColor = highlightColor;  
+                _highlightBorder.style.borderRightColor = highlightColor;  
                 _highlightBorder.visible = false;  
             }  
         }  
@@ -116,15 +151,11 @@ namespace PCGToolkit.Graph
                     unityTextAlign = TextAnchor.MiddleCenter,  
                     color = new StyleColor(new Color(0.9f, 0.9f, 0.3f)),  
                     backgroundColor = new StyleColor(new Color(0.1f, 0.1f, 0.1f, 0.7f)),  
-                    paddingLeft = 4,  
-                    paddingRight = 4,  
-                    paddingTop = 1,  
-                    paddingBottom = 1,  
+                    paddingLeft = 4, paddingRight = 4,  
+                    paddingTop = 1, paddingBottom = 1,  
                     marginTop = 2,  
-                    borderTopLeftRadius = 3,  
-                    borderTopRightRadius = 3,  
-                    borderBottomLeftRadius = 3,  
-                    borderBottomRightRadius = 3,  
+                    borderTopLeftRadius = 3, borderTopRightRadius = 3,  
+                    borderBottomLeftRadius = 3, borderBottomRightRadius = 3,  
                 }  
             };  
             _executionTimeLabel.visible = false;  
@@ -141,15 +172,15 @@ namespace PCGToolkit.Graph
             _highlightBorder.style.left = -2;  
             _highlightBorder.style.right = -2;  
   
-            var highlightColor = new Color(1f, 0.85f, 0.1f, 0.9f);  
+            var c = new Color(1f, 0.85f, 0.1f, 0.9f);  
             _highlightBorder.style.borderTopWidth = 3;  
             _highlightBorder.style.borderBottomWidth = 3;  
             _highlightBorder.style.borderLeftWidth = 3;  
             _highlightBorder.style.borderRightWidth = 3;  
-            _highlightBorder.style.borderTopColor = new StyleColor(highlightColor);  
-            _highlightBorder.style.borderBottomColor = new StyleColor(highlightColor);  
-            _highlightBorder.style.borderLeftColor = new StyleColor(highlightColor);  
-            _highlightBorder.style.borderRightColor = new StyleColor(highlightColor);  
+            _highlightBorder.style.borderTopColor = new StyleColor(c);  
+            _highlightBorder.style.borderBottomColor = new StyleColor(c);  
+            _highlightBorder.style.borderLeftColor = new StyleColor(c);  
+            _highlightBorder.style.borderRightColor = new StyleColor(c);  
             _highlightBorder.style.borderTopLeftRadius = 6;  
             _highlightBorder.style.borderTopRightRadius = 6;  
             _highlightBorder.style.borderBottomLeftRadius = 6;  
@@ -183,7 +214,6 @@ namespace PCGToolkit.Graph
   
             float luminance = 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;  
             var textColor = luminance > 0.5f ? Color.black : Color.white;  
-  
             var titleLabel = titleContainer.Q<Label>("title-label");  
             if (titleLabel != null)  
                 titleLabel.style.color = new StyleColor(textColor);  
@@ -195,16 +225,242 @@ namespace PCGToolkit.Graph
   
             foreach (var schema in PCGNode.Inputs)  
             {  
-                var portType = GetPortCapacity(schema);  
+                var portCapacity = GetPortCapacity(schema);  
                 var port = InstantiatePort(  
                     Orientation.Horizontal, Direction.Input,  
-                    portType, GetSystemType(schema.PortType));  
+                    portCapacity, GetSystemType(schema.PortType));  
   
                 port.portName = schema.DisplayName;  
                 port.portColor = GetPortColor(schema.PortType);  
   
                 inputPorts[schema.Name] = port;  
+                _inputSchemas[schema.Name] = schema;  
+  
+                // 为非 Geometry 类型的端口创建内联编辑器  
+                if (schema.PortType != PCGPortType.Geometry && schema.PortType != PCGPortType.Any)  
+                {  
+                    var widget = CreateInlineWidget(schema);  
+                    if (widget != null)  
+                    {  
+                        port.Add(widget);  
+                        _portWidgets[schema.Name] = widget;  
+                    }  
+                }  
+  
+                // 初始化默认值  
+                if (schema.DefaultValue != null)  
+                {  
+                    _portDefaultValues[schema.Name] = schema.DefaultValue;  
+                }  
+  
                 inputContainer.Add(port);  
+            }  
+        }
+  
+        /// <summary>  
+        /// 根据端口类型创建对应的内联编辑控件  
+        /// </summary>  
+        private VisualElement CreateInlineWidget(PCGParamSchema schema)  
+        {  
+            VisualElement widget = null;  
+  
+            switch (schema.PortType)  
+            {  
+                case PCGPortType.Float:  
+                {  
+                    var defaultVal = schema.DefaultValue is float f ? f : 0f;  
+                    _portDefaultValues[schema.Name] = defaultVal;  
+  
+                    var field = new FloatField()  
+                    {  
+                        value = defaultVal,  
+                        style =  
+                        {  
+                            width = 60,  
+                            marginLeft = 4,  
+                            fontSize = 10,  
+                        }  
+                    };  
+                    field.RegisterValueChangedCallback(evt =>  
+                    {  
+                        var val = evt.newValue;  
+                        // 应用 Min/Max 约束  
+                        if (schema.Min != float.MinValue && val < schema.Min) val = schema.Min;  
+                        if (schema.Max != float.MaxValue && val > schema.Max) val = schema.Max;  
+                        if (val != evt.newValue) field.SetValueWithoutNotify(val);  
+                        _portDefaultValues[schema.Name] = val;  
+                    });  
+                    widget = field;  
+                    break;  
+                }  
+  
+                case PCGPortType.Int:  
+                {  
+                    var defaultVal = schema.DefaultValue is int i ? i : 0;  
+                    _portDefaultValues[schema.Name] = defaultVal;  
+  
+                    var field = new IntegerField()  
+                    {  
+                        value = defaultVal,  
+                        style =  
+                        {  
+                            width = 60,  
+                            marginLeft = 4,  
+                            fontSize = 10,  
+                        }  
+                    };  
+                    field.RegisterValueChangedCallback(evt =>  
+                    {  
+                        var val = evt.newValue;  
+                        if (schema.Min != float.MinValue && val < (int)schema.Min) val = (int)schema.Min;  
+                        if (schema.Max != float.MaxValue && val > (int)schema.Max) val = (int)schema.Max;  
+                        if (val != evt.newValue) field.SetValueWithoutNotify(val);  
+                        _portDefaultValues[schema.Name] = val;  
+                    });  
+                    widget = field;  
+                    break;  
+                }  
+  
+                case PCGPortType.Bool:  
+                {  
+                    var defaultVal = schema.DefaultValue is bool b && b;  
+                    _portDefaultValues[schema.Name] = defaultVal;  
+  
+                    var field = new Toggle()  
+                    {  
+                        value = defaultVal,  
+                        style =  
+                        {  
+                            marginLeft = 4,  
+                        }  
+                    };  
+                    field.RegisterValueChangedCallback(evt =>  
+                    {  
+                        _portDefaultValues[schema.Name] = evt.newValue;  
+                    });  
+                    widget = field;  
+                    break;  
+                }  
+  
+                case PCGPortType.String:  
+                {  
+                    var defaultVal = schema.DefaultValue as string ?? "";  
+                    _portDefaultValues[schema.Name] = defaultVal;  
+  
+                    var field = new TextField()  
+                    {  
+                        value = defaultVal,  
+                        style =  
+                        {  
+                            width = 80,  
+                            marginLeft = 4,  
+                            fontSize = 10,  
+                        }  
+                    };  
+                    field.RegisterValueChangedCallback(evt =>  
+                    {  
+                        _portDefaultValues[schema.Name] = evt.newValue;  
+                    });  
+                    widget = field;  
+                    break;  
+                }  
+  
+                case PCGPortType.Vector3:  
+                {  
+                    var defaultVal = schema.DefaultValue is Vector3 v ? v : Vector3.zero;  
+                    _portDefaultValues[schema.Name] = defaultVal;  
+  
+                    var container = new VisualElement()  
+                    {  
+                        style =  
+                        {  
+                            flexDirection = FlexDirection.Row,  
+                            marginLeft = 4,  
+                        }  
+                    };  
+  
+                    var fieldX = new FloatField("X") { value = defaultVal.x, style = { width = 45, fontSize = 9 } };  
+                    var fieldY = new FloatField("Y") { value = defaultVal.y, style = { width = 45, fontSize = 9 } };  
+                    var fieldZ = new FloatField("Z") { value = defaultVal.z, style = { width = 45, fontSize = 9 } };  
+  
+                    System.Action updateVector = () =>  
+                    {  
+                        _portDefaultValues[schema.Name] = new Vector3(fieldX.value, fieldY.value, fieldZ.value);  
+                    };  
+  
+                    fieldX.RegisterValueChangedCallback(_ => updateVector());  
+                    fieldY.RegisterValueChangedCallback(_ => updateVector());  
+                    fieldZ.RegisterValueChangedCallback(_ => updateVector());  
+  
+                    container.Add(fieldX);  
+                    container.Add(fieldY);  
+                    container.Add(fieldZ);  
+                    widget = container;  
+                    break;  
+                }  
+  
+                case PCGPortType.Color:  
+                {  
+                    var defaultVal = schema.DefaultValue is Color c ? c : Color.white;  
+                    _portDefaultValues[schema.Name] = defaultVal;  
+  
+                    var field = new ColorField()  
+                    {  
+                        value = defaultVal,  
+                        style =  
+                        {  
+                            width = 60,  
+                            marginLeft = 4,  
+                        }  
+                    };  
+                    field.RegisterValueChangedCallback(evt =>  
+                    {  
+                        _portDefaultValues[schema.Name] = evt.newValue;  
+                    });  
+                    widget = field;  
+                    break;  
+                }  
+            }  
+  
+            return widget;  
+        }  
+  
+        /// <summary>  
+        /// 更新指定端口的控件显示值（用于加载时恢复）  
+        /// </summary>  
+        private void UpdateWidgetValue(string portName, object value)  
+        {  
+            if (!_portWidgets.TryGetValue(portName, out var widget)) return;  
+            if (!_inputSchemas.TryGetValue(portName, out var schema)) return;  
+  
+            switch (schema.PortType)  
+            {  
+                case PCGPortType.Float when widget is FloatField ff && value is float fv:  
+                    ff.SetValueWithoutNotify(fv);  
+                    break;  
+                case PCGPortType.Int when widget is IntegerField intF && value is int iv:  
+                    intF.SetValueWithoutNotify(iv);  
+                    break;  
+                case PCGPortType.Bool when widget is Toggle toggle && value is bool bv:  
+                    toggle.SetValueWithoutNotify(bv);  
+                    break;  
+                case PCGPortType.String when widget is TextField tf && value is string sv:  
+                    tf.SetValueWithoutNotify(sv);  
+                    break;  
+                case PCGPortType.Color when widget is ColorField cf && value is Color cv:  
+                    cf.SetValueWithoutNotify(cv);  
+                    break;  
+                case PCGPortType.Vector3 when value is Vector3 vec:  
+                {  
+                    var fields = widget.Query<FloatField>().ToList();  
+                    if (fields.Count >= 3)  
+                    {  
+                        fields[0].SetValueWithoutNotify(vec.x);  
+                        fields[1].SetValueWithoutNotify(vec.y);  
+                        fields[2].SetValueWithoutNotify(vec.z);  
+                    }  
+                    break;  
+                }  
             }  
         }  
   
@@ -272,5 +528,6 @@ namespace PCGToolkit.Graph
             outputPorts.TryGetValue(portName, out var port);  
             return port;  
         }  
+        
     }  
 }
