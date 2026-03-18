@@ -1,15 +1,15 @@
-using System.Collections.Generic;
-using UnityEditor.Experimental.GraphView;
-using UnityEngine;
-using UnityEngine.UIElements;
+using System.Collections.Generic;  
+using UnityEditor.Experimental.GraphView;  
+using UnityEngine;  
+using UnityEngine.UIElements;  
 using PCGToolkit.Core;
 
 namespace PCGToolkit.Graph
 {
-    /// <summary>
-    /// PCG 节点在 GraphView 中的可视化表示
-    /// 负责端口绘制、参数面板、预览缩略图等
-    /// </summary>
+    /// <summary>  
+    /// PCG 节点在 GraphView 中的可视化表示  
+    /// 负责端口绘制、参数面板、预览缩略图等  
+    /// </summary>  
     public class PCGNodeVisual : Node
     {
         public string NodeId { get; private set; }
@@ -18,9 +18,9 @@ namespace PCGToolkit.Graph
         private Dictionary<string, Port> inputPorts = new Dictionary<string, Port>();
         private Dictionary<string, Port> outputPorts = new Dictionary<string, Port>();
 
-        /// <summary>
-        /// 初始化节点可视化
-        /// </summary>
+        /// <summary>  
+        /// 初始化节点可视化  
+        /// </summary>  
         public void Initialize(IPCGNode pcgNode, Vector2 position)
         {
             PCGNode = pcgNode;
@@ -30,26 +30,86 @@ namespace PCGToolkit.Graph
 
             SetPosition(new Rect(position, Vector2.zero));
 
-            // TODO: 根据 Category 设置标题栏颜色
+            // 根据 Category 设置标题栏颜色  
             SetCategoryColor(pcgNode.Category);
 
-            // 创建输入端口
+            // 创建输入端口  
             CreateInputPorts();
 
-            // 创建输出端口
+            // 创建输出端口  
             CreateOutputPorts();
 
             RefreshExpandedState();
             RefreshPorts();
         }
 
+        /// <summary>  
+        /// 设置节点 ID（用于加载时恢复）  
+        /// </summary>  
+        public void SetNodeId(string id)
+        {
+            NodeId = id;
+        }
+
         private void SetCategoryColor(PCGNodeCategory category)
         {
-            // TODO: 设置不同类别的标题栏颜色
-            // Create=绿, Attribute=青, Transform=黄, Geometry=蓝
-            // UV=紫, Distribute=橙, Curve=粉, Deform=红
-            // Topology=灰蓝, Procedural=金, Output=白
-            Debug.Log($"PCGNodeVisual: SetCategoryColor - {category} (TODO)");
+            Color color;
+            switch (category)
+            {
+                case PCGNodeCategory.Create:
+                    color = new Color(0.15f, 0.45f, 0.2f);
+                    break;
+                case PCGNodeCategory.Attribute:
+                    color = new Color(0.15f, 0.45f, 0.45f);
+                    break;
+                case PCGNodeCategory.Transform:
+                    color = new Color(0.55f, 0.5f, 0.1f);
+                    break;
+                case PCGNodeCategory.Utility:
+                    color = new Color(0.35f, 0.35f, 0.35f);
+                    break;
+                case PCGNodeCategory.Geometry:
+                    color = new Color(0.2f, 0.35f, 0.6f);
+                    break;
+                case PCGNodeCategory.UV:
+                    color = new Color(0.4f, 0.2f, 0.55f);
+                    break;
+                case PCGNodeCategory.Distribute:
+                    color = new Color(0.6f, 0.35f, 0.1f);
+                    break;
+                case PCGNodeCategory.Curve:
+                    color = new Color(0.6f, 0.25f, 0.4f);
+                    break;
+                case PCGNodeCategory.Deform:
+                    color = new Color(0.6f, 0.15f, 0.15f);
+                    break;
+                case PCGNodeCategory.Topology:
+                    color = new Color(0.25f, 0.35f, 0.5f);
+                    break;
+                case PCGNodeCategory.Procedural:
+                    color = new Color(0.5f, 0.45f, 0.1f);
+                    break;
+                case PCGNodeCategory.Output:
+                    color = new Color(0.4f, 0.4f, 0.4f);
+                    break;
+                default:
+                    color = new Color(0.3f, 0.3f, 0.3f);
+                    break;
+            }
+
+            titleContainer.style.backgroundColor = new StyleColor(color);
+
+            // 根据背景亮度自动选择文字颜色  
+            // 使用相对亮度公式: L = 0.299*R + 0.587*G + 0.114*B  
+            float luminance = 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
+            var textColor = luminance > 0.5f ? Color.black : Color.white;
+
+            // 设置标题文字颜色  
+            var titleLabel = titleContainer.Q<Label>("title-label");
+            if (titleLabel != null)
+            {
+                titleLabel.style.color = new StyleColor(textColor);
+            }
         }
 
         private void CreateInputPorts()
@@ -100,7 +160,6 @@ namespace PCGToolkit.Graph
 
         private System.Type GetSystemType(PCGPortType portType)
         {
-            // TODO: 映射 PCGPortType 到 System.Type（用于 GraphView 类型兼容性检查）
             switch (portType)
             {
                 case PCGPortType.Geometry: return typeof(PCGGeometry);
@@ -116,32 +175,31 @@ namespace PCGToolkit.Graph
 
         private Color GetPortColor(PCGPortType portType)
         {
-            // TODO: 根据端口类型返回颜色（便于视觉区分）
             switch (portType)
             {
-                case PCGPortType.Geometry: return new Color(0.2f, 0.8f, 0.4f);  // 绿色
-                case PCGPortType.Float: return new Color(0.4f, 0.6f, 1.0f);     // 蓝色
-                case PCGPortType.Int: return new Color(0.3f, 0.9f, 0.9f);       // 青色
-                case PCGPortType.Vector3: return new Color(1.0f, 0.8f, 0.2f);   // 黄色
-                case PCGPortType.String: return new Color(1.0f, 0.4f, 0.6f);    // 粉色
-                case PCGPortType.Bool: return new Color(0.9f, 0.3f, 0.3f);      // 红色
+                case PCGPortType.Geometry: return new Color(0.2f, 0.8f, 0.4f);
+                case PCGPortType.Float: return new Color(0.4f, 0.6f, 1.0f);
+                case PCGPortType.Int: return new Color(0.3f, 0.9f, 0.9f);
+                case PCGPortType.Vector3: return new Color(1.0f, 0.8f, 0.2f);
+                case PCGPortType.String: return new Color(1.0f, 0.4f, 0.6f);
+                case PCGPortType.Bool: return new Color(0.9f, 0.3f, 0.3f);
                 case PCGPortType.Color: return Color.white;
                 default: return Color.gray;
             }
         }
 
-        /// <summary>
-        /// 获取指定名称的输入端口
-        /// </summary>
+        /// <summary>  
+        /// 获取指定名称的输入端口  
+        /// </summary>  
         public Port GetInputPort(string portName)
         {
             inputPorts.TryGetValue(portName, out var port);
             return port;
         }
 
-        /// <summary>
-        /// 获取指定名称的输出端口
-        /// </summary>
+        /// <summary>  
+        /// 获取指定名称的输出端口  
+        /// </summary>  
         public Port GetOutputPort(string portName)
         {
             outputPorts.TryGetValue(portName, out var port);
