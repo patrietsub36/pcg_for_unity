@@ -23,6 +23,10 @@ namespace PCGToolkit.Graph
         private Button _runToSelectedButton;  
         private Button _stopButton;
         private ProgressBar _progressBar; // 迭代三：进度条
+        
+        // 迭代三：错误面板
+        private PCGErrorPanel _errorPanel;
+        private VisualElement _mainContainer;
   
         [MenuItem("PCG Toolkit/Node Editor")]  
         public static void OpenWindow()  
@@ -48,8 +52,8 @@ namespace PCGToolkit.Graph
             if (_asyncExecutor != null && _asyncExecutor.State != ExecutionState.Idle)  
                 _asyncExecutor.Stop();  
   
-            if (graphView != null)  
-                rootVisualElement.Remove(graphView);
+            if (graphView != null && _mainContainer != null)
+                _mainContainer.Remove(graphView);
             
             // 迭代一：注销 Undo/Redo 回调
             Undo.undoRedoPerformed -= OnUndoRedo;
@@ -57,13 +61,79 @@ namespace PCGToolkit.Graph
   
         private void ConstructGraphView()  
         {  
+            // 迭代三：创建主容器（GraphView + ErrorPanel）
+            _mainContainer = new VisualElement
+            {
+                style =
+                {
+                    flexGrow = 1,
+                    flexDirection = FlexDirection.Column,
+                }
+            };
+            rootVisualElement.Add(_mainContainer);
+            
             graphView = new PCGGraphView();  
             graphView.StretchToParentSize();  
-            graphView.Initialize(this);  
-            rootVisualElement.Add(graphView);
+            graphView.Initialize(this);
+            _mainContainer.Add(graphView);
             
             // 迭代一：注册脏状态回调
             graphView.OnGraphChanged += MarkDirty;
+            
+            // 迭代三：注册节点点击预览回调
+            graphView.OnNodeClicked += OnNodeClickedForPreview;
+            
+            // 迭代三：创建错误面板（默认隐藏）
+            _errorPanel = new PCGErrorPanel();
+            _errorPanel.style.display = DisplayStyle.None;
+            _errorPanel.OnErrorClicked += OnErrorClicked;
+            _mainContainer.Add(_errorPanel);
+        }
+        
+        // 迭代三：节点点击预览
+        private void OnNodeClickedForPreview(string nodeId)
+        {
+            // 只有执行完成后才能预览
+            if (_asyncExecutor.State != ExecutionState.Idle && 
+                _asyncExecutor.State != ExecutionState.Paused)
+                return;
+            
+            var result = _asyncExecutor.GetNodeResult(nodeId);
+            if (result == null || result.Outputs == null || result.Outputs.Count == 0)
+                return;
+            
+            // 获取第一个 Geometry 输出
+            PCGToolkit.Core.PCGGeometry previewGeo = null;
+            foreach (var kvp in result.Outputs)
+            {
+                if (kvp.Value != null)
+                {
+                    previewGeo = kvp.Value;
+                    break;
+                }
+            }
+            
+            if (previewGeo == null) return;
+            
+            // 打开预览窗口
+            if (_previewWindow == null)
+                _previewWindow = PCGNodePreviewWindow.Open();
+            
+            _previewWindow.SetPreviewData(nodeId, result.NodeType, previewGeo, result.ElapsedMs);
+            _previewWindow.Show();
+            _previewWindow.Focus();
+        }
+        
+        // 迭代三：错误点击高亮节点
+        private void OnErrorClicked(string nodeId)
+        {
+            graphView.ClearAllHighlights();
+            var visual = graphView.FindNodeVisual(nodeId);
+            if (visual != null)
+            {
+                visual.SetHighlight(true);
+                visual.SetErrorState(true);
+            }
         }  
   
         private void InitializeExecutor()  
@@ -88,8 +158,13 @@ namespace PCGToolkit.Graph
                     visual.SetHighlight(false);  
                     visual.ShowExecutionTime(result.ElapsedMs);  
   
-                    if (!result.Success)  
-                        visual.SetErrorState(true);  
+                    if (!result.Success)
+                    {
+                        visual.SetErrorState(true);
+                        // 迭代三：添加到错误面板
+                        _errorPanel.AddError(result.NodeId, result.NodeType, result.ErrorMessage ?? "Execution failed");
+                        _errorPanel.style.display = DisplayStyle.Flex;
+                    }
                 }  
   
                 // 更新总时长和进度条

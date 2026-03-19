@@ -23,7 +23,10 @@ namespace PCGToolkit.Graph
         // ---- 内联默认值编辑相关 ----  
         private Dictionary<string, VisualElement> _portWidgets = new Dictionary<string, VisualElement>();  
         private Dictionary<string, object> _portDefaultValues = new Dictionary<string, object>();  
-        private Dictionary<string, PCGParamSchema> _inputSchemas = new Dictionary<string, PCGParamSchema>();  
+        private Dictionary<string, PCGParamSchema> _inputSchemas = new Dictionary<string, PCGParamSchema>();
+        
+        // 迭代三：节点点击事件（用于预览）
+        public event System.Action<string> OnNodeDoubleClicked;
   
 
         public void Initialize(IPCGNode pcgNode, Vector2 position)  
@@ -42,7 +45,23 @@ namespace PCGToolkit.Graph
             CreateHighlightBorder();  
   
             RefreshExpandedState();  
-            RefreshPorts();  
+            RefreshPorts();
+            
+            // 迭代三：注册双击事件（用于预览）
+            RegisterCallback<ClickEvent>(OnDoubleClick);
+        }
+        
+        // 迭代三：双击处理
+        private int _clickCount = 0;
+        private float _lastClickTime = 0f;
+        
+        private void OnDoubleClick(ClickEvent evt)
+        {
+            // 检测双击
+            if (evt.clickCount >= 2)
+            {
+                OnNodeDoubleClicked?.Invoke(NodeId);
+            }
         }  
   
         public void SetNodeId(string id) { NodeId = id; }  

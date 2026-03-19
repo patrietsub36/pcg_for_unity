@@ -18,6 +18,9 @@ namespace PCGToolkit.Graph
         // 迭代一：脏状态事件
         public event Action OnGraphChanged;
         
+        // 迭代三：节点点击事件（用于预览）
+        public event Action<string> OnNodeClicked;
+        
         // 迭代二：端口拖拽过滤
         private Port _dragStartPort;
         private PCGPortType? _filterPortType;
@@ -353,7 +356,11 @@ namespace PCGToolkit.Graph
         public PCGNodeVisual CreateNodeVisual(IPCGNode node, Vector2 position)  
         {  
             var visual = new PCGNodeVisual();  
-            visual.Initialize(node, position);  
+            visual.Initialize(node, position);
+            
+            // 迭代三：注册节点双击事件
+            visual.OnNodeDoubleClicked += nodeId => OnNodeClicked?.Invoke(nodeId);
+            
             AddElement(visual);
             return visual;  
         }
