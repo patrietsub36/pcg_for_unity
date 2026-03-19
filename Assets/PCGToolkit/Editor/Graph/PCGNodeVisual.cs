@@ -1,10 +1,10 @@
 using System.Collections.Generic;  
+using UnityEditor;
 using UnityEditor.Experimental.GraphView;  
 using UnityEditor.UIElements;  
 using UnityEngine;  
 using UnityEngine.UIElements;  
-using PCGToolkit.Core;  
-using UnityEditor.UIElements;
+using PCGToolkit.Core;
 
 namespace PCGToolkit.Graph  
 {  
@@ -231,7 +231,10 @@ namespace PCGToolkit.Graph
                     portCapacity, GetSystemType(schema.PortType));  
   
                 port.portName = schema.DisplayName;  
-                port.portColor = GetPortColor(schema.PortType);  
+                port.portColor = GetPortColor(schema.PortType);
+                
+                // 迭代二：添加端口 Tooltip
+                port.tooltip = schema.Description;
   
                 inputPorts[schema.Name] = port;  
                 _inputSchemas[schema.Name] = schema;  
@@ -475,7 +478,10 @@ namespace PCGToolkit.Graph
                     Port.Capacity.Multi, GetSystemType(schema.PortType));  
   
                 port.portName = schema.DisplayName;  
-                port.portColor = GetPortColor(schema.PortType);  
+                port.portColor = GetPortColor(schema.PortType);
+                
+                // 迭代二：添加端口 Tooltip
+                port.tooltip = schema.Description;  
   
                 outputPorts[schema.Name] = port;  
                 outputContainer.Add(port);  

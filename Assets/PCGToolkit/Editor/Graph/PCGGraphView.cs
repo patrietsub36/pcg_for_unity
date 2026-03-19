@@ -14,6 +14,9 @@ namespace PCGToolkit.Graph
         private PCGGraphData graphData;
         private PCGNodeSearchWindow _searchWindow;
         private PCGGraphEditorWindow _editorWindow;
+        
+        // 迭代一：脏状态事件
+        public event Action OnGraphChanged;
 
         public PCGGraphView()
         {
@@ -28,6 +31,14 @@ namespace PCGToolkit.Graph
             grid.StretchToParentSize();
 
             graphViewChanged += OnGraphViewChanged;
+            
+            // 迭代一：注册键盘事件
+            RegisterCallback<KeyDownEvent>(OnKeyDown);
+            
+            // 迭代一：添加 MiniMap
+            var miniMap = new MiniMap { anchored = true };
+            miniMap.SetPosition(new Rect(10, 30, 200, 140));
+            Add(miniMap);
         }
 
         public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)
@@ -60,6 +71,24 @@ namespace PCGToolkit.Graph
             {
                 SearchWindow.Open(new SearchWindowContext(ctx.screenMousePosition), _searchWindow);
             };
+        }
+        
+        // ---- 迭代一：键盘快捷键 ----
+        
+        private void OnKeyDown(KeyDownEvent evt)
+        {
+            // F: Frame All
+            if (evt.keyCode == KeyCode.F)
+            {
+                FrameAll();
+                evt.StopPropagation();
+            }
+            // Delete: 删除选中
+            else if (evt.keyCode == KeyCode.Delete)
+            {
+                DeleteSelection();
+                evt.StopPropagation();
+            }
         }
 
         // ---- 执行调试辅助方法 ----  
@@ -112,7 +141,7 @@ namespace PCGToolkit.Graph
         {  
             var visual = new PCGNodeVisual();  
             visual.Initialize(node, position);  
-            AddElement(visual);  
+            AddElement(visual);
             return visual;  
         }
         
@@ -328,7 +357,10 @@ namespace PCGToolkit.Graph
         }
         
         private GraphViewChange OnGraphViewChanged(GraphViewChange change)  
-        {  
+        {
+            // 迭代一：通知脏状态变更
+            OnGraphChanged?.Invoke();
+            
             // 处理新建连线 → 隐藏内联编辑器  
             if (change.edgesToCreate != null)  
             {  

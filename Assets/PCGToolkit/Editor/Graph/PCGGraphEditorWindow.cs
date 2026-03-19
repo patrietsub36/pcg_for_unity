@@ -10,6 +10,10 @@ namespace PCGToolkit.Graph
         private PCGGraphView graphView;  
         private PCGGraphData currentGraph;  
   
+        // ---- 迭代一：文件状态管理 ----  
+        private string _currentAssetPath;   // 当前文件路径，null 表示新建未保存  
+        private bool _isDirty;              // 脏状态标记
+  
         // ---- 执行调试相关 ----  
         private PCGAsyncGraphExecutor _asyncExecutor;  
         private PCGNodePreviewWindow _previewWindow;  
@@ -17,7 +21,8 @@ namespace PCGToolkit.Graph
         private Label _executionStateLabel;  
         private Button _executeButton;  
         private Button _runToSelectedButton;  
-        private Button _stopButton;  
+        private Button _stopButton;
+        private ProgressBar _progressBar; // 迭代三：进度条
   
         [MenuItem("PCG Toolkit/Node Editor")]  
         public static void OpenWindow()  
@@ -31,7 +36,10 @@ namespace PCGToolkit.Graph
         {  
             ConstructGraphView();  
             GenerateToolbar();  
-            InitializeExecutor();  
+            InitializeExecutor();
+            
+            // 迭代一：注册 Undo/Redo 回调
+            Undo.undoRedoPerformed += OnUndoRedo;
         }  
   
         private void OnDisable()  
@@ -41,7 +49,10 @@ namespace PCGToolkit.Graph
                 _asyncExecutor.Stop();  
   
             if (graphView != null)  
-                rootVisualElement.Remove(graphView);  
+                rootVisualElement.Remove(graphView);
+            
+            // 迭代一：注销 Undo/Redo 回调
+            Undo.undoRedoPerformed -= OnUndoRedo;
         }  
   
         private void ConstructGraphView()  
@@ -49,7 +60,10 @@ namespace PCGToolkit.Graph
             graphView = new PCGGraphView();  
             graphView.StretchToParentSize();  
             graphView.Initialize(this);  
-            rootVisualElement.Add(graphView);  
+            rootVisualElement.Add(graphView);
+            
+            // 迭代一：注册脏状态回调
+            graphView.OnGraphChanged += MarkDirty;
         }  
   
         private void InitializeExecutor()  
@@ -78,8 +92,9 @@ namespace PCGToolkit.Graph
                         visual.SetErrorState(true);  
                 }  
   
-                // 更新总时长  
-                UpdateTotalTimeLabel();  
+                // 更新总时长和进度条
+                UpdateTotalTimeLabel();
+                UpdateProgressBar();
             };  
   
             // 整个图执行完成事件  
@@ -88,7 +103,8 @@ namespace PCGToolkit.Graph
                 graphView.ClearAllHighlights();  
                 UpdateTotalTimeLabel(totalMs);  
                 UpdateExecutionStateLabel("Completed");  
-                SetToolbarButtonsEnabled(true);  
+                SetToolbarButtonsEnabled(true);
+                _progressBar.value = 100f;
                 Debug.Log($"PCG Graph execution completed. Total: {totalMs:F1}ms");  
             };  
   
@@ -102,7 +118,8 @@ namespace PCGToolkit.Graph
   
                 UpdateTotalTimeLabel();  
                 UpdateExecutionStateLabel($"Paused at {result.NodeType}");  
-                SetToolbarButtonsEnabled(true);  
+                SetToolbarButtonsEnabled(true);
+                UpdateProgressBar();
   
                 // 尝试打开预览窗口  
                 ShowPreviewForNode(nodeId, result);  
@@ -137,6 +154,10 @@ namespace PCGToolkit.Graph
             var saveButton = new Button(() => SaveGraph()) { text = "Save" };  
             toolbar.Add(saveButton);  
   
+            // 迭代一：新增 Save As 按钮
+            var saveAsButton = new Button(() => SaveAsGraph()) { text = "Save As" };  
+            toolbar.Add(saveAsButton);
+  
             var loadButton = new Button(() => LoadGraph()) { text = "Load" };  
             toolbar.Add(loadButton);  
   
@@ -170,7 +191,13 @@ namespace PCGToolkit.Graph
                     marginRight = 8,  
                 }  
             };  
-            toolbar.Add(_executionStateLabel);  
+            toolbar.Add(_executionStateLabel);
+            
+            // 迭代三：进度条
+            _progressBar = new ProgressBar { title = "", value = 0 };
+            _progressBar.style.width = 100;
+            _progressBar.style.height = 16;
+            toolbar.Add(_progressBar);
   
             // ---- 弹性空间 ----  
             var spacer = new VisualElement();  
@@ -191,7 +218,75 @@ namespace PCGToolkit.Graph
             toolbar.Add(_totalTimeLabel);  
   
             rootVisualElement.Add(toolbar);  
-        }  
+        }
+        
+        // ---- 迭代一：键盘快捷键 ----
+        private void Update()
+        {
+            // 在编辑器窗口中获得焦点时处理快捷键
+            if (hasFocus)
+            {
+                var e = Event.current;
+                if (e != null && e.type == EventType.KeyDown)
+                {
+                    HandleKeyboardShortcut(e);
+                }
+            }
+        }
+        
+        private void HandleKeyboardShortcut(Event e)
+        {
+            // Ctrl+S: Save
+            if (e.keyCode == KeyCode.S && e.control && !e.shift)
+            {
+                SaveGraph();
+                e.Use();
+            }
+            // Ctrl+Shift+S: Save As
+            else if (e.keyCode == KeyCode.S && e.control && e.shift)
+            {
+                SaveAsGraph();
+                e.Use();
+            }
+        }
+        
+        // ---- 迭代一：脏状态管理 ----
+        
+        private void MarkDirty()
+        {
+            if (_isDirty) return;
+            _isDirty = true;
+            UpdateWindowTitle();
+        }
+        
+        private void ClearDirty()
+        {
+            _isDirty = false;
+            UpdateWindowTitle();
+        }
+        
+        private void UpdateWindowTitle()
+        {
+            string graphName = string.IsNullOrEmpty(_currentAssetPath) 
+                ? "New Graph" 
+                : System.IO.Path.GetFileNameWithoutExtension(_currentAssetPath);
+            string dirtyMark = _isDirty ? "*" : "";
+            titleContent = new GUIContent($"PCG Node Editor - {graphName}{dirtyMark}");
+        }
+        
+        // ---- 迭代一：Undo/Redo 支持 ----
+        
+        private void OnUndoRedo()
+        {
+            if (currentGraph == null) return;
+            
+            // 从 currentGraph 重新加载视图
+            graphView.LoadGraph(currentGraph);
+            graphView.ClearAllHighlights();
+            graphView.ClearAllExecutionTimes();
+            
+            Debug.Log("Undo/Redo performed, graph view refreshed.");
+        }
   
         // ---- 执行操作 ----  
   
@@ -215,7 +310,8 @@ namespace PCGToolkit.Graph
             // 清除之前的执行状态  
             graphView.ClearAllHighlights();  
             graphView.ClearAllExecutionTimes();  
-            _totalTimeLabel.text = "Total: --";  
+            _totalTimeLabel.text = "Total: --";
+            _progressBar.value = 0;
   
             SetToolbarButtonsEnabled(false);  
             _asyncExecutor.Execute(data);  
@@ -240,7 +336,8 @@ namespace PCGToolkit.Graph
             // 清除之前的执行状态  
             graphView.ClearAllHighlights();  
             graphView.ClearAllExecutionTimes();  
-            _totalTimeLabel.text = "Total: --";  
+            _totalTimeLabel.text = "Total: --";
+            _progressBar.value = 0;
   
             SetToolbarButtonsEnabled(false);  
             _asyncExecutor.ExecuteToNode(data, selectedVisual.NodeId);  
@@ -276,7 +373,15 @@ namespace PCGToolkit.Graph
         {  
             var ms = totalMs ?? _asyncExecutor.TotalElapsedMs;  
             _totalTimeLabel.text = $"Total: {ms:F1}ms ({_asyncExecutor.CompletedNodeCount}/{_asyncExecutor.TotalNodeCount})";  
-        }  
+        }
+        
+        private void UpdateProgressBar()
+        {
+            if (_asyncExecutor.TotalNodeCount > 0)
+            {
+                _progressBar.value = (float)_asyncExecutor.CompletedNodeCount / _asyncExecutor.TotalNodeCount * 100f;
+            }
+        }
   
         private void UpdateExecutionStateLabel(string state)  
         {  
@@ -310,7 +415,7 @@ namespace PCGToolkit.Graph
             _previewWindow.Focus();  
         }  
   
-        // ---- 原有文件操作方法 ----  
+        // ---- 文件操作方法 ----  
   
         private void NewGraph()  
         {  
@@ -322,16 +427,39 @@ namespace PCGToolkit.Graph
             graphView.LoadGraph(currentGraph);  
             graphView.ClearAllHighlights();  
             graphView.ClearAllExecutionTimes();  
-            _totalTimeLabel.text = "Total: --";  
-            UpdateExecutionStateLabel("Idle");  
+            _totalTimeLabel.text = "Total: --";
+            _progressBar.value = 0;
+            UpdateExecutionStateLabel("Idle");
+            
+            // 迭代一：重置文件状态
+            _currentAssetPath = null;
+            ClearDirty();
         }  
   
         private void SaveGraph()  
-        {  
+        {
+            // 迭代一：如果有当前路径，直接覆盖保存；否则走 SaveAs
+            if (!string.IsNullOrEmpty(_currentAssetPath))
+            {
+                SaveToPath(_currentAssetPath);
+                return;
+            }
+            
+            // 没有路径时走 SaveAs
+            SaveAsGraph();
+        }
+        
+        private void SaveAsGraph()
+        {
             var path = EditorUtility.SaveFilePanelInProject(  
                 "Save PCG Graph", "NewPCGGraph", "asset", "Save PCG Graph");  
-            if (string.IsNullOrEmpty(path)) return;  
-  
+            if (string.IsNullOrEmpty(path)) return;
+            
+            SaveToPath(path);
+        }
+        
+        private void SaveToPath(string path)
+        {
             var data = graphView.SaveToGraphData();  
             data.GraphName = System.IO.Path.GetFileNameWithoutExtension(path);  
   
@@ -348,9 +476,11 @@ namespace PCGToolkit.Graph
             }  
   
             AssetDatabase.Refresh();  
-            currentGraph = AssetDatabase.LoadAssetAtPath<PCGGraphData>(path);  
-            Debug.Log($"Graph saved to {path}");  
-        }  
+            currentGraph = AssetDatabase.LoadAssetAtPath<PCGGraphData>(path);
+            _currentAssetPath = path;
+            ClearDirty();
+            Debug.Log($"Graph saved to {path}");
+        }
   
         private void LoadGraph()  
         {  
@@ -374,8 +504,13 @@ namespace PCGToolkit.Graph
             graphView.LoadGraph(data);  
             graphView.ClearAllHighlights();  
             graphView.ClearAllExecutionTimes();  
-            _totalTimeLabel.text = "Total: --";  
-            UpdateExecutionStateLabel("Idle");  
+            _totalTimeLabel.text = "Total: --";
+            _progressBar.value = 0;
+            UpdateExecutionStateLabel("Idle");
+            
+            // 迭代一：设置当前路径并清除脏状态
+            _currentAssetPath = path;
+            ClearDirty();
             Debug.Log($"Graph loaded from {path}");  
         }  
   
