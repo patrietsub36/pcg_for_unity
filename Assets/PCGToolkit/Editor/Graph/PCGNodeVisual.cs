@@ -623,7 +623,15 @@ namespace PCGToolkit.Graph
                         fields[2].SetValueWithoutNotify(vec.z);  
                     }  
                     break;  
-                }  
+                }
+                // 迭代四修复：Enum/Dropdown 支持
+                case PCGPortType.String when schema.EnumOptions != null && widget is PopupField<string> popup && value is string enumVal:
+                {
+                    var index = System.Array.IndexOf(schema.EnumOptions, enumVal);
+                    if (index >= 0)
+                        popup.SetValueWithoutNotify(enumVal);
+                    break;
+                }
             }  
         }  
   

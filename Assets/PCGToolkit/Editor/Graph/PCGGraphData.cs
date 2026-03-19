@@ -166,6 +166,8 @@ namespace PCGToolkit.Graph
         {
             Nodes.Clear();
             Edges.Clear();
+            Groups.Clear();
+            StickyNotes.Clear();
         }
     }
 }

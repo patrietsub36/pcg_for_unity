@@ -9,29 +9,37 @@ namespace PCGToolkit.Graph
     /// </summary>
     public class SubGraphInputNode : PCGNodeBase
     {
-        private string _portName = "input";
-        private PCGPortType _portType = PCGPortType.Geometry;
-
         public override string Name => "SubGraphInput";
         public override string DisplayName => "SubGraph Input";
         public override string Description => "子图的输入端口";
         public override PCGNodeCategory Category => PCGNodeCategory.Utility;
 
-        public override PCGParamSchema[] Inputs => new PCGParamSchema[0]; // 无输入
-
-        public override PCGParamSchema[] Outputs => new[]
+        public override PCGParamSchema[] Inputs => new[]
         {
-            new PCGParamSchema(_portName, PCGPortDirection.Output, _portType,
-                _portName, "子图输入端口", null),
+            // 迭代四修复：添加配置参数，让端口配置能够被持久化
+            new PCGParamSchema("portName", PCGPortDirection.Input, PCGPortType.String,
+                "Port Name", "端口名称", "input"),
+            new PCGParamSchema("portType", PCGPortDirection.Input, PCGPortType.Int,
+                "Port Type", "端口类型 (0=Geometry, 1=Float, 2=Int, 3=Bool, 4=String, 5=Vector3, 6=Color)", 0,
+                Min = 0, Max = 6),
         };
 
+        public override PCGParamSchema[] Outputs => new PCGParamSchema[0]; // 动态生成
+
         /// <summary>
-        /// 设置端口配置
+        /// 动态生成输出端口
         /// </summary>
-        public void SetPortConfig(string portName, PCGPortType portType)
+        public override PCGParamSchema[] GetDynamicOutputs(Dictionary<string, object> parameters)
         {
-            _portName = portName;
-            _portType = portType;
+            var portName = GetParamString(parameters, "portName", "input");
+            var portTypeInt = GetParamInt(parameters, "portType", 0);
+            var portType = (PCGPortType)portTypeInt;
+            
+            return new[]
+            {
+                new PCGParamSchema(portName, PCGPortDirection.Output, portType,
+                    portName, "子图输入端口", null),
+            };
         }
 
         public override Dictionary<string, PCGGeometry> Execute(
@@ -39,15 +47,17 @@ namespace PCGToolkit.Graph
             Dictionary<string, PCGGeometry> inputGeometries,
             Dictionary<string, object> parameters)
         {
+            var portName = GetParamString(parameters, "portName", "input");
+            
             // 输入节点的值由 SubGraphNode 在执行前注入到 context.GlobalVariables
-            var key = $"SubGraphInput.{_portName}";
+            var key = $"SubGraphInput.{portName}";
             if (ctx.GlobalVariables.TryGetValue(key, out var value) && value is PCGGeometry geo)
             {
-                return SingleOutput(_portName, geo);
+                return SingleOutput(portName, geo);
             }
             
-            ctx.LogWarning($"SubGraphInput: 未找到输入 '{_portName}'");
-            return SingleOutput(_portName, new PCGGeometry());
+            ctx.LogWarning($"SubGraphInput: 未找到输入 '{portName}'");
+            return SingleOutput(portName, new PCGGeometry());
         }
     }
 }

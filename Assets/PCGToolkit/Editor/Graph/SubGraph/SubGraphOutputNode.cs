@@ -9,9 +9,6 @@ namespace PCGToolkit.Graph
     /// </summary>
     public class SubGraphOutputNode : PCGNodeBase
     {
-        private string _portName = "output";
-        private PCGPortType _portType = PCGPortType.Geometry;
-
         public override string Name => "SubGraphOutput";
         public override string DisplayName => "SubGraph Output";
         public override string Description => "子图的输出端口";
@@ -19,31 +16,32 @@ namespace PCGToolkit.Graph
 
         public override PCGParamSchema[] Inputs => new[]
         {
-            new PCGParamSchema(_portName, PCGPortDirection.Input, _portType,
-                _portName, "子图输出端口", null, required: true),
+            // 迭代四修复：添加配置参数，让端口配置能够被持久化
+            new PCGParamSchema("portName", PCGPortDirection.Input, PCGPortType.String,
+                "Port Name", "端口名称", "output"),
+            new PCGParamSchema("portType", PCGPortDirection.Input, PCGPortType.Int,
+                "Port Type", "端口类型 (0=Geometry, 1=Float, 2=Int, 3=Bool, 4=String, 5=Vector3, 6=Color)", 0,
+                Min = 0, Max = 6),
         };
 
         public override PCGParamSchema[] Outputs => new PCGParamSchema[0]; // 无输出
-
-        /// <summary>
-        /// 设置端口配置
-        /// </summary>
-        public void SetPortConfig(string portName, PCGPortType portType)
-        {
-            _portName = portName;
-            _portType = portType;
-        }
 
         public override Dictionary<string, PCGGeometry> Execute(
             PCGContext ctx,
             Dictionary<string, PCGGeometry> inputGeometries,
             Dictionary<string, object> parameters)
         {
-            // 将输入存储到 context.GlobalVariables 供 SubGraphNode 收集
-            var geo = GetInputGeometry(inputGeometries, _portName);
+            var portName = GetParamString(parameters, "portName", "output");
+            
+            // 尝试从连接的输入获取几何体
+            var geo = GetInputGeometry(inputGeometries, portName);
             if (geo != null)
             {
-                ctx.GlobalVariables[$"SubGraphOutput.{_portName}"] = geo;
+                ctx.GlobalVariables[$"SubGraphOutput.{portName}"] = geo;
+            }
+            else
+            {
+                ctx.LogWarning($"SubGraphOutput: 未找到输入 '{portName}'");
             }
             
             return new Dictionary<string, PCGGeometry>(); // 无输出

@@ -51,6 +51,35 @@ namespace PCGToolkit.Graph
             }  
   
             Debug.Log($"PCGGraphExecutor: Execution completed. {sortedNodes.Count} nodes executed.");  
+        }
+        
+        /// <summary>
+        /// 使用外部上下文执行节点图（用于 SubGraph）
+        /// </summary>
+        public void Execute(PCGContext externalContext)
+        {
+            context = externalContext;
+            // 注意：不清空 _nodeOutputs，因为可能需要保留给外部使用
+            // context.ClearCache() 也不应该清空，因为外部可能已注入数据
+
+            var sortedNodes = TopologicalSort();
+            if (sortedNodes == null)
+            {
+                Debug.LogError("PCGGraphExecutor: Topological sort failed (cycle detected).");
+                return;
+            }
+
+            foreach (var nodeData in sortedNodes)
+            {
+                ExecuteNode(nodeData);
+                if (context.HasError)
+                {
+                    Debug.LogError($"PCGGraphExecutor: Execution stopped due to error at node {nodeData.NodeType} ({nodeData.NodeId})");
+                    return;
+                }
+            }
+
+            Debug.Log($"PCGGraphExecutor: Execution completed. {sortedNodes.Count} nodes executed.");
         }  
   
         /// <summary>  

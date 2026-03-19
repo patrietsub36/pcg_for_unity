@@ -48,23 +48,30 @@ namespace PCGToolkit.Graph
                 };
             }
             
-            // 从子图查找 SubGraphInputNode
+            // 迭代四修复：从子图查找 SubGraphOutputNode（输出节点=子图的输入端口）
             var inputs = new List<PCGParamSchema>();
             foreach (var nodeData in subGraphData.Nodes)
             {
-                if (nodeData.NodeType == "SubGraphInput")
+                if (nodeData.NodeType == "SubGraphOutput")
                 {
-                    // 提取端口配置（从参数中读取）
-                    string portName = "input";
-                    PCGPortType portType = PCGPortType.Geometry;
+                    // 从参数中读取端口配置
+                    string portName = "output";
+                    int portTypeInt = 0;
                     
                     foreach (var param in nodeData.Parameters)
                     {
-                        if (param.Key == "_portName") portName = param.ValueJson;
-                        if (param.Key == "_portType") portType = (PCGPortType)int.Parse(param.ValueJson);
+                        if (param.Key == "portName")
+                        {
+                            // 反序列化字符串值
+                            portName = param.ValueJson;
+                        }
+                        if (param.Key == "portType")
+                        {
+                            int.TryParse(param.ValueJson, out portTypeInt);
+                        }
                     }
                     
-                    inputs.Add(new PCGParamSchema(portName, PCGPortDirection.Input, portType,
+                    inputs.Add(new PCGParamSchema(portName, PCGPortDirection.Input, (PCGPortType)portTypeInt,
                         portName, "子图输入", null));
                 }
             }
@@ -89,22 +96,28 @@ namespace PCGToolkit.Graph
                 };
             }
             
-            // 从子图查找 SubGraphOutputNode
+            // 迭代四修复：从子图查找 SubGraphInputNode（输入节点=子图的输出端口）
             var outputs = new List<PCGParamSchema>();
             foreach (var nodeData in subGraphData.Nodes)
             {
-                if (nodeData.NodeType == "SubGraphOutput")
+                if (nodeData.NodeType == "SubGraphInput")
                 {
-                    string portName = "output";
-                    PCGPortType portType = PCGPortType.Geometry;
+                    string portName = "input";
+                    int portTypeInt = 0;
                     
                     foreach (var param in nodeData.Parameters)
                     {
-                        if (param.Key == "_portName") portName = param.ValueJson;
-                        if (param.Key == "_portType") portType = (PCGPortType)int.Parse(param.ValueJson);
+                        if (param.Key == "portName")
+                        {
+                            portName = param.ValueJson;
+                        }
+                        if (param.Key == "portType")
+                        {
+                            int.TryParse(param.ValueJson, out portTypeInt);
+                        }
                     }
                     
-                    outputs.Add(new PCGParamSchema(portName, PCGPortDirection.Output, portType,
+                    outputs.Add(new PCGParamSchema(portName, PCGPortDirection.Output, (PCGPortType)portTypeInt,
                         portName, "子图输出"));
                 }
             }

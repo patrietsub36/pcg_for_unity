@@ -463,7 +463,35 @@ namespace PCGToolkit.Graph
   
                 // 隐藏已连接端口的内联编辑器  
                 inputVisual.OnPortConnectionChanged(edgeData.InputPortName, true);  
-            }  
+            }
+            
+            // 迭代四修复：加载 Groups
+            foreach (var groupData in data.Groups)
+            {
+                var group = new Group(groupData.Title, new Rect(groupData.Position, groupData.Size));
+                
+                foreach (var nodeId in groupData.NodeIds)
+                {
+                    if (nodeVisualMap.TryGetValue(nodeId, out var visual))
+                    {
+                        group.AddElement(visual);
+                    }
+                }
+                
+                AddElement(group);
+            }
+            
+            // 迭代四修复：加载 StickyNotes
+            foreach (var noteData in data.StickyNotes)
+            {
+                var note = new StickyNote(noteData.NoteId)
+                {
+                    title = noteData.Title,
+                    contents = noteData.Content
+                };
+                note.SetPosition(new Rect(noteData.Position, noteData.Size));
+                AddElement(note);
+            }
         }  
 
         public PCGGraphData SaveToGraphData()  
@@ -509,6 +537,44 @@ namespace PCGToolkit.Graph
                     };  
                     data.Edges.Add(edgeData);  
                 }  
+            });
+            
+            // 迭代四修复：序列化 Groups
+            graphElements.ForEach(element =>
+            {
+                if (element is Group group)
+                {
+                    var groupData = new PCGGroupData
+                    {
+                        GroupId = group.title,
+                        Title = group.title,
+                        Position = group.GetPosition().position,
+                        Size = group.GetPosition().size
+                    };
+                    
+                    foreach (var contained in group.containedElements)
+                    {
+                        if (contained is PCGNodeVisual visual)
+                        {
+                            groupData.NodeIds.Add(visual.NodeId);
+                        }
+                    }
+                    
+                    data.Groups.Add(groupData);
+                }
+                
+                if (element is StickyNote note)
+                {
+                    var noteData = new PCGStickyNoteData
+                    {
+                        NoteId = note.title,
+                        Title = note.title,
+                        Content = note.contents,
+                        Position = note.GetPosition().position,
+                        Size = note.GetPosition().size
+                    };
+                    data.StickyNotes.Add(noteData);
+                }
             });
   
             return data;  
