@@ -93,6 +93,7 @@ namespace PCGToolkit.Graph
         {
             _errors.Clear();
             _scrollView.Clear();
+            style.display = DisplayStyle.None; // 迭代四修复：清空后隐藏面板
         }
         
         public bool HasErrors => _errors.Exists(e => !e.IsWarning);

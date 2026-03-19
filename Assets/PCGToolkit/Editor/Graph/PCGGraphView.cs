@@ -22,7 +22,6 @@ namespace PCGToolkit.Graph
         public event Action<string> OnNodeClicked;
         
         // 迭代二：端口拖拽过滤
-        private Port _dragStartPort;
         private PCGPortType? _filterPortType;
         private Direction? _filterDirection;
 
@@ -82,13 +81,39 @@ namespace PCGToolkit.Graph
 
             nodeCreationRequest = ctx =>
             {
-                // 迭代二：传递端口过滤信息
+                // 迭代四修复：传递端口过滤信息
                 _searchWindow.SetPortFilter(_filterPortType, _filterDirection);
                 SearchWindow.Open(new SearchWindowContext(ctx.screenMousePosition), _searchWindow);
                 
                 // 清除过滤
                 _filterPortType = null;
                 _filterDirection = null;
+            };
+            
+            // 迭代四修复：注册端口拖拽事件
+            graphViewChanged += change =>
+            {
+                // 在拖拽连线时检测端口类型
+                if (change.edgesToCreate != null && change.edgesToCreate.Count > 0)
+                {
+                    var edge = change.edgesToCreate[0];
+                    if (edge.output != null && edge.output.portType != typeof(object))
+                    {
+                        // 记录输出端口类型用于下次创建节点时的过滤
+                        var portType = PCGPortType.Any;
+                        if (edge.output.portType == typeof(PCGToolkit.Core.PCGGeometry)) portType = PCGPortType.Geometry;
+                        else if (edge.output.portType == typeof(float)) portType = PCGPortType.Float;
+                        else if (edge.output.portType == typeof(int)) portType = PCGPortType.Int;
+                        else if (edge.output.portType == typeof(bool)) portType = PCGPortType.Bool;
+                        else if (edge.output.portType == typeof(string)) portType = PCGPortType.String;
+                        else if (edge.output.portType == typeof(Vector3)) portType = PCGPortType.Vector3;
+                        else if (edge.output.portType == typeof(Color)) portType = PCGPortType.Color;
+                        
+                        _filterPortType = portType;
+                        _filterDirection = Direction.Input;
+                    }
+                }
+                return change;
             };
         }
         
@@ -97,6 +122,9 @@ namespace PCGToolkit.Graph
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             base.BuildContextualMenu(evt);
+            
+            // 迭代四修复：转换屏幕坐标为GraphView本地坐标
+            var localMousePosition = contentViewContainer.WorldToLocal(evt.mousePosition);
             
             // 画布右键
             evt.menu.AppendAction("Create Node", _ => 
@@ -108,7 +136,7 @@ namespace PCGToolkit.Graph
             });
             
             // 迭代四：添加 Sticky Note
-            evt.menu.AppendAction("Add Sticky Note", _ => AddStickyNote(evt.mousePosition));
+            evt.menu.AppendAction("Add Sticky Note", _ => AddStickyNote(localMousePosition));
             
             evt.menu.AppendSeparator();
             evt.menu.AppendAction("Frame All", _ => FrameAll());
@@ -143,7 +171,8 @@ namespace PCGToolkit.Graph
             }
             
             // 创建 Group
-            var group = new Group("New Group", new Rect(minPos - new Vector2(20, 40), maxPos - minPos + new Vector2(40, 60)));
+            var group = new Group { title = "New Group" };
+            group.SetPosition(new Rect(minPos - new Vector2(20, 40), maxPos - minPos + new Vector2(40, 60)));
             
             foreach (var node in selectedNodes)
             {
@@ -156,11 +185,9 @@ namespace PCGToolkit.Graph
         
         private void AddStickyNote(Vector2 position)
         {
-            var note = new StickyNote("New Note")
-            {
-                title = "Note",
-                contents = "Write your note here..."
-            };
+            var note = new StickyNote();
+            note.title = "Note";
+            note.contents = "Write your note here...";
             note.SetPosition(new Rect(position, new Vector2(200, 100)));
             AddElement(note);
             OnGraphChanged?.Invoke();
@@ -463,7 +490,35 @@ namespace PCGToolkit.Graph
   
                 // 隐藏已连接端口的内联编辑器  
                 inputVisual.OnPortConnectionChanged(edgeData.InputPortName, true);  
-            }  
+            }
+            
+            // 迭代四修复：加载 Groups
+            foreach (var groupData in data.Groups)
+            {
+                var group = new Group(groupData.Title, new Rect(groupData.Position, groupData.Size));
+                
+                foreach (var nodeId in groupData.NodeIds)
+                {
+                    if (nodeVisualMap.TryGetValue(nodeId, out var visual))
+                    {
+                        group.AddElement(visual);
+                    }
+                }
+                
+                AddElement(group);
+            }
+            
+            // 迭代四修复：加载 StickyNotes
+            foreach (var noteData in data.StickyNotes)
+            {
+                var note = new StickyNote(noteData.NoteId)
+                {
+                    title = noteData.Title,
+                    contents = noteData.Content
+                };
+                note.SetPosition(new Rect(noteData.Position, noteData.Size));
+                AddElement(note);
+            }
         }  
 
         public PCGGraphData SaveToGraphData()  
@@ -509,6 +564,44 @@ namespace PCGToolkit.Graph
                     };  
                     data.Edges.Add(edgeData);  
                 }  
+            });
+            
+            // 迭代四修复：序列化 Groups
+            graphElements.ForEach(element =>
+            {
+                if (element is Group group)
+                {
+                    var groupData = new PCGGroupData
+                    {
+                        GroupId = group.title,
+                        Title = group.title,
+                        Position = group.GetPosition().position,
+                        Size = group.GetPosition().size
+                    };
+                    
+                    foreach (var contained in group.containedElements)
+                    {
+                        if (contained is PCGNodeVisual visual)
+                        {
+                            groupData.NodeIds.Add(visual.NodeId);
+                        }
+                    }
+                    
+                    data.Groups.Add(groupData);
+                }
+                
+                if (element is StickyNote note)
+                {
+                    var noteData = new PCGStickyNoteData
+                    {
+                        NoteId = note.title,
+                        Title = note.title,
+                        Content = note.contents,
+                        Position = note.GetPosition().position,
+                        Size = note.GetPosition().size
+                    };
+                    data.StickyNotes.Add(noteData);
+                }
             });
   
             return data;  

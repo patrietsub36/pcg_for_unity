@@ -52,9 +52,6 @@ namespace PCGToolkit.Graph
         }
         
         // 迭代三：双击处理
-        private int _clickCount = 0;
-        private float _lastClickTime = 0f;
-        
         private void OnDoubleClick(ClickEvent evt)
         {
             // 检测双击
@@ -600,10 +597,34 @@ namespace PCGToolkit.Graph
             {  
                 case PCGPortType.Float when widget is FloatField ff && value is float fv:  
                     ff.SetValueWithoutNotify(fv);  
-                    break;  
+                    break;
+                // 迭代四修复：支持 Slider
+                case PCGPortType.Float when schema.Min != float.MinValue && schema.Max != float.MaxValue && value is float fval:
+                {
+                    var slider = widget.Q<Slider>();
+                    if (slider != null)
+                    {
+                        slider.SetValueWithoutNotify(fval);
+                        var label = widget.Q<Label>();
+                        if (label != null) label.text = fval.ToString("F2");
+                    }
+                    break;
+                }
                 case PCGPortType.Int when widget is IntegerField intF && value is int iv:  
                     intF.SetValueWithoutNotify(iv);  
-                    break;  
+                    break;
+                // 迭代四修复：支持 Int Slider
+                case PCGPortType.Int when schema.Min != float.MinValue && schema.Max != float.MaxValue && value is int ival:
+                {
+                    var slider = widget.Q<Slider>();
+                    if (slider != null)
+                    {
+                        slider.SetValueWithoutNotify(ival);
+                        var label = widget.Q<Label>();
+                        if (label != null) label.text = ival.ToString();
+                    }
+                    break;
+                }
                 case PCGPortType.Bool when widget is Toggle toggle && value is bool bv:  
                     toggle.SetValueWithoutNotify(bv);  
                     break;  
@@ -623,7 +644,15 @@ namespace PCGToolkit.Graph
                         fields[2].SetValueWithoutNotify(vec.z);  
                     }  
                     break;  
-                }  
+                }
+                // 迭代四修复：Enum/Dropdown 支持
+                case PCGPortType.String when schema.EnumOptions != null && widget is PopupField<string> popup && value is string enumVal:
+                {
+                    var index = System.Array.IndexOf(schema.EnumOptions, enumVal);
+                    if (index >= 0)
+                        popup.SetValueWithoutNotify(enumVal);
+                    break;
+                }
             }  
         }  
   

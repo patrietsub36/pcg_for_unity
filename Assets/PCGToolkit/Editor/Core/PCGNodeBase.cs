@@ -104,5 +104,22 @@ namespace PCGToolkit.Core
         {
             return new Dictionary<string, PCGGeometry> { { portName, geometry } };
         }
+
+        /// <summary>
+        /// 获取动态输出端口（根据参数动态生成）
+        /// 用于 SubGraphInputNode 等需要动态端口的节点
+        /// </summary>
+        public virtual PCGParamSchema[] GetDynamicOutputs(Dictionary<string, object> parameters)
+        {
+            return Outputs;
+        }
+
+        /// <summary>
+        /// 获取动态输入端口（根据参数动态生成）
+        /// </summary>
+        public virtual PCGParamSchema[] GetDynamicInputs(Dictionary<string, object> parameters)
+        {
+            return Inputs;
+        }
     }
 }

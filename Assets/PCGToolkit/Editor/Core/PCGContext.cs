@@ -8,6 +8,9 @@ namespace PCGToolkit.Core
     /// </summary>
     public class PCGContext
     {
+        /// <summary>是否启用调试模式</summary>
+        public bool Debug { get; set; }
+
         /// <summary>节点执行过程中的中间结果缓存，key 为节点 ID</summary>
         public Dictionary<string, PCGGeometry> NodeOutputCache = new Dictionary<string, PCGGeometry>();
 
@@ -25,6 +28,19 @@ namespace PCGToolkit.Core
 
         /// <summary>错误信息</summary>
         public string ErrorMessage { get; private set; }
+
+        /// <summary>
+        /// 默认构造函数
+        /// </summary>
+        public PCGContext() { }
+
+        /// <summary>
+        /// 带调试模式参数的构造函数
+        /// </summary>
+        public PCGContext(bool debug)
+        {
+            Debug = debug;
+        }
 
         /// <summary>
         /// 记录日志

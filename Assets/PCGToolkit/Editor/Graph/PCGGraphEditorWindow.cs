@@ -72,8 +72,8 @@ namespace PCGToolkit.Graph
             };
             rootVisualElement.Add(_mainContainer);
             
-            graphView = new PCGGraphView();  
-            graphView.StretchToParentSize();  
+            graphView = new PCGGraphView();
+            graphView.style.flexGrow = 1; // 迭代四修复：使用flexGrow代替StretchToParentSize
             graphView.Initialize(this);
             _mainContainer.Add(graphView);
             
@@ -296,32 +296,40 @@ namespace PCGToolkit.Graph
         }
         
         // ---- 迭代一：键盘快捷键 ----
-        private void Update()
+        private void OnEnable()
         {
-            // 在编辑器窗口中获得焦点时处理快捷键
-            if (hasFocus)
-            {
-                var e = Event.current;
-                if (e != null && e.type == EventType.KeyDown)
-                {
-                    HandleKeyboardShortcut(e);
-                }
-            }
+            // 注册全局键盘事件回调
+            rootVisualElement.RegisterCallback<KeyDownEvent>(OnGlobalKeyDown);
         }
         
-        private void HandleKeyboardShortcut(Event e)
+        private void OnDisable()
+        {
+            // 注销全局键盘事件回调
+            rootVisualElement.UnregisterCallback<KeyDownEvent>(OnGlobalKeyDown);
+        }
+        
+        private void OnGlobalKeyDown(KeyDownEvent evt)
+        {
+            // 如果焦点在文本输入框，不拦截快捷键
+            if (evt.target is TextField || evt.target is FloatField || evt.target is IntegerField)
+                return;
+            
+            HandleKeyboardShortcut(evt);
+        }
+        
+        private void HandleKeyboardShortcut(KeyDownEvent evt)
         {
             // Ctrl+S: Save
-            if (e.keyCode == KeyCode.S && e.control && !e.shift)
+            if (evt.keyCode == KeyCode.S && evt.ctrlKey && !evt.shiftKey)
             {
                 SaveGraph();
-                e.Use();
+                evt.StopPropagation();
             }
             // Ctrl+Shift+S: Save As
-            else if (e.keyCode == KeyCode.S && e.control && e.shift)
+            else if (evt.keyCode == KeyCode.S && evt.ctrlKey && evt.shiftKey)
             {
                 SaveAsGraph();
-                e.Use();
+                evt.StopPropagation();
             }
         }
         
