@@ -1,215 +1,462 @@
-# 当前任务清单
+# 当前任务： PCG Graph 用户体验优化迭代方案
 
+## 迭代一：基础操作完善
 
-## 背景
+> 目标：补齐编辑器最基本的操作闭环，让用户不丢失工作成果。
 
-目标：让 `ConstVector3 → Box → ExportMesh(SavePrefab)` 这条 3 节点流程在 PCG Node Editor 中完整跑通。
+### 1.1 Save / Save As 分离 + 脏状态追踪
 
-当前状态：
-- ConstVector3Node 已实现，通过 ctx.GlobalVariables 传递 Vector3 值
-- BoxNode 已实现，能生成 8 顶点 6 面的立方体
-- ExportMeshNode 是 TODO 空壳
-- PCGGeometryToMesh.Convert() 基础逻辑可用但有误导性日志
-- 同步执行器 PCGGraphExecutor 有两个 bug（不反序列化参数、不读 GlobalVariables）
-- PCGGraphView 没有 GetCompatiblePorts 覆写，允许任意类型端口互连
+**现状**：`SaveGraph()` 每次都弹 `SaveFilePanelInProject`，没有"保存到当前文件"的能力；窗口标题固定为 `"PCG Node Editor"`，无法看出当前编辑的是哪个图、是否有未保存修改。 [3-cite-0](#3-cite-0) [3-cite-1](#3-cite-1)
 
-仓库：No78Vino/pcg_for_unity (branch: main)
+**改动文件**：`PCGGraphEditorWindow.cs`
 
----
+**具体方案**：
 
-## 任务 1：提取 DeserializeParamValue 为共享静态工具方法
-
-### 问题
-`DeserializeParamValue` 方法在 `PCGAsyncGraphExecutor`（第 354-408 行）和 `PCGGraphView`（第 257-309 行）中各有一份几乎相同的拷贝。同步执行器 `PCGGraphExecutor` 也需要用到它，但目前没有。
-
-### 改动
-1. 在 `Assets/PCGToolkit/Editor/Core/` 下新建文件 `PCGParamHelper.cs`
-2. 创建静态类 `PCGParamHelper`，包含一个公共静态方法：
-   ```csharp
-   public static object DeserializeParamValue(PCGSerializedParameter param)
-   ```
-   逻辑直接从 `PCGAsyncGraphExecutor.DeserializeParamValue()`（第 354-408 行）复制过来。
-   注意：需要 `using PCGToolkit.Graph;`（因为 `PCGSerializedParameter` 定义在 `PCGGraphData.cs` 中）和 `using UnityEngine;`。
-3. 将 `PCGAsyncGraphExecutor`（第 354-408 行）和 `PCGGraphView`（第 257-309 行）中的 `DeserializeParamValue` 方法体改为调用 `PCGParamHelper.DeserializeParamValue(param)`，或直接删除私有方法改为调用静态方法。
-
----
-
-## 任务 2：修复 PCGGraphExecutor.ExecuteNode() 的参数传递
-
-### 问题
-文件：`Assets/PCGToolkit/Editor/Graph/PCGGraphExecutor.cs`，第 197-202 行。
-
-两个 bug：
-1. `parameters[param.Key] = param.ValueJson` 传入的是原始 JSON 字符串，而非反序列化后的 float/int/Vector3 等类型。下游节点的 `GetParamFloat()` 等方法做类型检查（`val is float f`），字符串会匹配失败，导致 fallback 到默认值。
-2. 缺少从 `context.GlobalVariables` 读取上游 Const 节点值的逻辑。ConstVector3Node 将值写入 `ctx.GlobalVariables["{nodeId}.value"]`，但同步执行器从不读取它。
-
-### 改动
-在 `ExecuteNode()` 方法中（第 197-202 行附近）：
-
-**修复 1**：将第 201 行改为使用任务 1 中提取的共享方法：
-```csharp
-// 原来：
-parameters[param.Key] = param.ValueJson;
-// 改为：
-parameters[param.Key] = PCGParamHelper.DeserializeParamValue(param);
 ```
-需要在文件顶部添加 `using PCGToolkit.Core;`（如果还没有的话，用于访问 PCGParamHelper）。
+字段新增：
+  - private string _currentAssetPath;   // 当前文件路径，null 表示新建未保存
+  - private bool _isDirty;              // 脏状态标记
 
-**修复 2**：在第 202 行之后、第 204 行（`context.CurrentNodeId = ...`）之前，添加 GlobalVariables 读取逻辑，与 `PCGAsyncGraphExecutor`（第 303-316 行）完全一致：
+方法改动：
+  - SaveGraph() → 如果 _currentAssetPath != null，直接覆盖保存；否则走 SaveAs 流程
+  - 新增 SaveAsGraph() → 始终弹文件对话框
+  - 新增 MarkDirty() → 设置 _isDirty = true，更新标题
+  - 新增 UpdateWindowTitle() → 显示 "PCG Node Editor - {GraphName}{*}"
+  - OnGraphViewChanged 回调中调用 MarkDirty()
+  - SaveGraph / LoadGraph / NewGraph 成功后清除 _isDirty
+
+工具栏改动：
+  - Save 按钮保留，新增 Save As 按钮
+```
+
+### 1.2 Undo/Redo 支持
+
+**现状**：代码中没有任何 `Undo.RecordObject` 调用，所有操作不可撤销。
+
+**改动文件**：`PCGGraphView.cs`, `PCGGraphEditorWindow.cs`, `PCGNodeVisual.cs`
+
+**具体方案**：
+
+```
+核心思路：
+  将 PCGGraphData 作为 Undo 的序列化载体。每次操作前，
+  调用 Undo.RecordObject(currentGraph, "操作描述") 记录快照。
+
+具体改动点：
+  1. PCGGraphView.OnGraphViewChanged() 中：
+     - edgesToCreate 前 → Undo.RecordObject(graphData, "Create Edge")
+     - elementsToRemove 前 → Undo.RecordObject(graphData, "Delete Element")
+  
+  2. PCGGraphView.CreateNodeVisual() 中：
+     - 创建节点前 → Undo.RecordObject(graphData, "Create Node")
+  
+  3. PCGNodeVisual 参数修改回调中：
+     - FloatField/IntegerField/Toggle 等 RegisterValueChangedCallback 中
+       → Undo.RecordObject(graphData, "Change Parameter")
+  
+  4. PCGGraphEditorWindow 中：
+     - Undo.undoRedoPerformed += OnUndoRedo
+     - OnUndoRedo() → 从 currentGraph 重新 LoadGraph 刷新视图
+```
+
+### 1.3 键盘快捷键
+
+**现状**：`PCGGraphView` 构造函数中没有注册任何键盘事件.
+
+**改动文件**：`PCGGraphView.cs`, `PCGGraphEditorWindow.cs`
+
+**具体方案**：
+
+| 快捷键 | 功能 | 实现位置 |
+|--------|------|----------|
+| `Ctrl+S` | Save | `PCGGraphEditorWindow.OnGUI` 或 `CreateGUI` 中注册 |
+| `Ctrl+Shift+S` | Save As | 同上 |
+| `Ctrl+Z` | Undo | Unity 内置，Undo 系统接入后自动生效 |
+| `Ctrl+Y` | Redo | 同上 |
+| `F` | Frame All | `PCGGraphView` 中调用 `FrameAll()` |
+| `Delete` | 删除选中 | `PCGGraphView` 中调用 `DeleteSelection()` |
+| `Ctrl+D` | 复制选中节点 | 迭代二实现 |
+
 ```csharp
-// 从上游 Const 节点的 GlobalVariables 中获取值
-foreach (var edge in graphData.Edges)
+// PCGGraphView 构造函数中添加
+RegisterCallback<KeyDownEvent>(OnKeyDown);
+
+private void OnKeyDown(KeyDownEvent evt)
 {
-    if (edge.InputNodeId == nodeData.NodeId)
+    if (evt.keyCode == KeyCode.F)
     {
-        var upstreamKey = $"{edge.OutputNodeId}.{edge.OutputPortName}";
-        if (context.GlobalVariables.TryGetValue(upstreamKey, out var val))
-        {
-            parameters[edge.InputPortName] = val;
-        }
+        FrameAll();
+        evt.StopPropagation();
+    }
+    if (evt.keyCode == KeyCode.Delete)
+    {
+        DeleteSelection();
+        evt.StopPropagation();
     }
 }
 ```
 
----
+### 1.4 MiniMap
 
-## 任务 3：实现 ExportMeshNode.Execute() 并支持 Prefab 保存
+**现状**：未添加 MiniMap 组件。
 
-### 问题
-文件：`Assets/PCGToolkit/Editor/Nodes/Create/ExportMeshNode.cs`，第 33-49 行。
-整个 Execute 方法是 TODO 空壳，不做任何实际操作。
+**改动文件**：`PCGGraphView.cs`
 
-### 改动
+**具体方案**：
 
-**3a. 添加 using 指令**（文件顶部）：
 ```csharp
-using UnityEditor;
-using System.IO;
-```
-
-**3b. 修改 Inputs 定义**（第 17-25 行）：
-将 `assetPath` 的默认值从 `"Assets/PCGOutput/mesh.asset"` 改为 `"Assets/PCGOutput/output.prefab"`，并将 DisplayName 改为 `"Save Path"`。
-
-**3c. 实现 Execute 方法体**（替换第 37-48 行的 TODO 内容）：
-
-实现逻辑如下（伪代码，请转为完整 C#）：
-```
-1. var geo = GetInputGeometry(inputGeometries, "input");
-2. if (geo == null || geo.Points.Count == 0) {
-     ctx.LogWarning("ExportMesh: 输入几何体为空，跳过导出");
-     return SingleOutput("geometry", geo);
-   }
-3. string savePath = GetParamString(parameters, "assetPath", "Assets/PCGOutput/output.prefab");
-4. bool createRenderer = GetParamBool(parameters, "createRenderer", true);
-5. // 确保目录存在
-   string directory = Path.GetDirectoryName(savePath);
-   if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
-6. // 转换为 Mesh
-   var mesh = PCGGeometryToMesh.Convert(geo);
-   mesh.name = Path.GetFileNameWithoutExtension(savePath) + "_Mesh";
-7. // 保存 Mesh 资产
-   string meshAssetPath = Path.ChangeExtension(savePath, ".asset");
-   AssetDatabase.CreateAsset(mesh, meshAssetPath);
-8. if (createRenderer) {
-     // 创建临时 GameObject
-     var go = new GameObject(Path.GetFileNameWithoutExtension(savePath));
-     go.AddComponent<MeshFilter>().sharedMesh = mesh;
-     var renderer = go.AddComponent<MeshRenderer>();
-     renderer.sharedMaterial = AssetDatabase.GetBuiltinExtraResource<Material>("Default-Diffuse.mat");
-     // 保存为 Prefab
-     string prefabPath = Path.ChangeExtension(savePath, ".prefab");
-     PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
-     Object.DestroyImmediate(go);
-     ctx.Log($"ExportMesh: Prefab 已保存到 {prefabPath}");
-   }
-9. AssetDatabase.SaveAssets();
-   AssetDatabase.Refresh();
-   ctx.Log($"ExportMesh: Mesh 已保存到 {meshAssetPath}");
-10. return SingleOutput("geometry", geo);
-```
-
-**3d. 移动文件位置**：
-将 `Assets/PCGToolkit/Editor/Nodes/Create/ExportMeshNode.cs` 移动到 `Assets/PCGToolkit/Editor/Nodes/Output/ExportMeshNode.cs`。
-注意：`Nodes/Output/` 目录当前为空，需要确认目录存在。namespace 保持不变（`PCGToolkit.Nodes.Create`），或者改为 `PCGToolkit.Nodes.Output` 以与目录一致——如果改 namespace，需要检查是否有其他文件引用了旧 namespace。
-
----
-
-## 任务 4：清理 PCGGeometryToMesh.Convert() 的误导性日志
-
-### 问题
-文件：`Assets/PCGToolkit/Editor/Core/PCGGeometryToMesh.cs`，第 17-18 行。
-日志写着 "TODO - 将 PCGGeometry 转换为 Unity Mesh"，但实际上基础转换逻辑（顶点 + 三角形/四边形 → Mesh + RecalculateNormals）已经可以工作。这会让开发者误以为功能未实现。
-
-### 改动
-将第 17-18 行：
-```csharp
-// TODO: 实现完整的 PCGGeometry → Mesh 转换
-Debug.Log("[PCGGeometryToMesh] Convert: TODO - 将 PCGGeometry 转换为 Unity Mesh");
-```
-改为：
-```csharp
-Debug.Log($"[PCGGeometryToMesh] Converting PCGGeometry to Mesh (Points: {geometry?.Points.Count ?? 0}, Prims: {geometry?.Primitives.Count ?? 0})");
+// PCGGraphView 构造函数末尾添加
+var miniMap = new MiniMap { anchored = true };
+miniMap.SetPosition(new Rect(10, 30, 200, 140));
+Add(miniMap);
 ```
 
 ---
 
-## 任务 5：为 PCGGraphView 添加 GetCompatiblePorts 端口类型检查
+## 迭代二：操作效率提升
 
-### 问题
-文件：`Assets/PCGToolkit/Editor/Graph/PCGGraphView.cs`。
-当前没有覆写 `GetCompatiblePorts` 方法。Unity GraphView 的默认实现允许任意方向相反的端口互连，不检查数据类型。这意味着用户可以把 Geometry 输出连到 Float 输入，执行时会静默失败。
+> 目标：减少重复操作，提升节点图编辑的流畅度。
 
-### 改动
-在 `PCGGraphView` 类中添加 `GetCompatiblePorts` 覆写方法（建议放在第 31 行 `graphViewChanged += OnGraphViewChanged;` 之后）：
+### 2.1 右键上下文菜单
+
+**现状**：没有重写 `BuildContextualMenu`，右键无任何菜单。
+
+**改动文件**：`PCGGraphView.cs`
+
+**具体方案**：
 
 ```csharp
-public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)
+public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
 {
-    var compatiblePorts = new List<Port>();
-    ports.ForEach(port =>
+    base.BuildContextualMenu(evt);
+    
+    // 画布右键
+    evt.menu.AppendAction("Create Node", _ => { /* 打开搜索窗口 */ });
+    evt.menu.AppendSeparator();
+    evt.menu.AppendAction("Frame All", _ => FrameAll());
+    
+    // 节点右键（当选中节点时）
+    if (selection.OfType<PCGNodeVisual>().Any())
     {
-        // 不能连接自身节点
-        if (port.node == startPort.node) return;
-        // 方向必须相反
-        if (port.direction == startPort.direction) return;
-        // 类型必须兼容：相同类型，或其中一方是 Any
-        if (port.portType != startPort.portType &&
-            port.portType != typeof(object) &&
-            startPort.portType != typeof(object))
-            return;
-        compatiblePorts.Add(port);
-    });
-    return compatiblePorts;
+        evt.menu.AppendAction("Duplicate", _ => DuplicateSelection());
+        evt.menu.AppendAction("Disconnect All", _ => DisconnectSelection());
+        evt.menu.AppendAction("Delete", _ => DeleteSelection());
+    }
 }
 ```
 
-注意：`PCGPortType.Any` 在 `GetSystemType()` 中映射为 `typeof(object)`（见 PCGNodeVisual.cs 第 501 行），所以用 `typeof(object)` 判断 Any 类型。
+### 2.2 节点复制/粘贴
+
+**现状**：没有实现 `serializeGraphElements` 和 `unserializeAndPaste` 回调。
+
+**改动文件**：`PCGGraphView.cs`
+
+**具体方案**：
+
+```
+GraphView 内置支持 Copy/Paste，需要实现两个回调：
+
+1. serializeGraphElements = elements => {
+     // 将选中的节点和边序列化为 JSON 字符串
+     // 返回 string
+   };
+
+2. unserializeAndPaste = (operationName, data) => {
+     // 反序列化 JSON，创建新节点（偏移位置 +30,+30）
+     // 重建内部连线
+   };
+
+3. canPasteSerializedData = data => {
+     // 验证剪贴板数据是否有效
+   };
+```
+
+### 2.3 端口拖拽时过滤搜索窗口
+
+**现状**：`nodeCreationRequest` 回调中直接打开搜索窗口，不传递端口类型信息。搜索窗口 `CreateSearchTree` 显示所有节点。 
+
+**改动文件**：`PCGGraphView.cs`, `PCGNodeSearchWindow.cs`
+
+**具体方案**：
+
+```
+1. PCGNodeSearchWindow 新增字段：
+   - public PCGPortType? FilterPortType;
+   - public Direction? FilterDirection;
+
+2. PCGGraphView 中重写 GetCompatiblePorts 时记录拖拽起始端口信息，
+   或在 nodeCreationRequest 回调中检测是否从端口拖出。
+
+3. PCGNodeSearchWindow.CreateSearchTree 中：
+   - 如果 FilterPortType != null，只显示拥有兼容端口的节点
+   - 例如从 Float Output 拖出 → 只显示有 Float/Any Input 的节点
+
+4. OnSelectEntry 中创建节点后自动连线到拖拽起始端口。
+```
+
+### 2.4 端口 Tooltip
+
+**现状**：`PCGParamSchema` 有 `Description` 字段，但端口上没有设置 tooltip。 
+
+**改动文件**：`PCGNodeVisual.cs`
+
+**具体方案**：
+
+```csharp
+// CreateInputPorts() 中，port.portName = schema.DisplayName 之后添加：
+port.tooltip = schema.Description;
+
+// CreateOutputPorts() 中同理
+port.tooltip = schema.Description;
+```
+
+### 2.5 Min/Max 参数使用 Slider
+
+**现状**：`PCGParamSchema` 定义了 `Min`/`Max`，但内联控件只用了 `FloatField`/`IntegerField`，没有利用范围约束。 
+
+**改动文件**：`PCGNodeVisual.cs`
+
+**具体方案**：
+
+```csharp
+// CreateInlineWidget() 中 PCGPortType.Float 分支改为：
+case PCGPortType.Float:
+{
+    bool hasRange = schema.Min != float.MinValue && schema.Max != float.MaxValue;
+    if (hasRange)
+    {
+        var slider = new Slider(schema.Min, schema.Max) { value = defaultVal };
+        slider.style.width = 100;
+        slider.RegisterValueChangedCallback(evt => {
+            _portDefaultValues[schema.Name] = evt.newValue;
+        });
+        widget = slider;
+    }
+    else
+    {
+        // 保留原有 FloatField 逻辑
+    }
+    break;
+}
+
+// PCGPortType.Int 分支同理，使用 SliderInt
+```
 
 ---
 
-## 验证步骤
+## 迭代三：预览与调试增强
 
-完成以上 5 个任务后，按以下步骤验证：
+> 目标：提升执行调试体验，让用户能更方便地检查中间结果。
 
-1. 打开 Unity，菜单 `PCG Toolkit > Node Editor`
-2. 按 Tab 或右键创建 `Const Vector3` 节点，设置 x=0, y=2, z=0
-3. 创建 `Box` 节点
-4. 创建 `Export Mesh` 节点，在 Save Path 字段输入 `Assets/PCGOutput/box.prefab`
-5. 连线：ConstVector3 的 `Value` 输出 → Box 的 `Center` 输入
-6. 连线：Box 的 `Geometry` 输出 → ExportMesh 的 `Input` 输入
-7. 点击工具栏 `Execute` 按钮
-8. 验证：
-    - Console 无报错
-    - `Assets/PCGOutput/` 目录下生成了 `box.asset`（Mesh 资产）和 `box.prefab`（Prefab）
-    - 双击 Prefab 可以看到一个中心在 (0,2,0) 的立方体
-    - 三个节点都显示了执行耗时标签
+### 3.1 执行完成后点击节点预览
+
+**现状**：只有 "Run To Selected" 暂停时才打开预览窗口。全图执行完成后无法查看任意节点的输出。 
+
+**改动文件**：`PCGGraphEditorWindow.cs`, `PCGGraphView.cs`
+
+**具体方案**：
+
+```
+1. PCGGraphView 中监听节点选中事件：
+   - RegisterCallback<MouseUpEvent> 或重写 selection changed
+   - 当选中节点变化时，通知 EditorWindow
+
+2. PCGGraphEditorWindow 中：
+   - 新增 OnNodeSelectionChanged(PCGNodeVisual visual) 方法
+   - 如果 _asyncExecutor.State == Idle 且有执行结果缓存：
+     var outputs = _asyncExecutor.GetNodeOutput(visual.NodeId);
+     if (outputs != null) ShowPreviewForNode(...)
+   - 这样执行完成后，点击任意节点即可查看其输出
+```
+
+### 3.2 编辑器内错误面板
+
+**现状**：执行错误只输出到 Unity Console，编辑器内只有节点红色高亮，没有错误详情。 
+
+**改动文件**：`PCGGraphEditorWindow.cs`, `PCGNodeVisual.cs`
+
+**具体方案**：
+
+```
+1. PCGNodeVisual 新增：
+   - private Label _errorLabel; // 显示在节点底部
+   - public void ShowError(string message) → 显示红色错误文本
+   - public void ClearError()
+
+2. PCGGraphEditorWindow 中：
+   - OnNodeCompleted 回调中，如果 !result.Success：
+     visual.ShowError(result.ErrorMessage);
+   
+3. 可选：在工具栏下方添加一个可折叠的错误列表面板
+   - 使用 ListView 显示所有执行错误
+   - 点击错误项定位到对应节点
+```
+
+### 3.3 节点执行进度条
+
+**现状**：工具栏有 `Total: {ms} ({completed}/{total})` 标签，但没有可视化进度。
+
+**改动文件**：`PCGGraphEditorWindow.cs`
+
+**具体方案**：
+
+```
+在工具栏中 _totalTimeLabel 旁边添加一个 ProgressBar：
+
+private ProgressBar _progressBar;
+
+// GenerateToolbar() 中：
+_progressBar = new ProgressBar { title = "" };
+_progressBar.style.width = 120;
+_progressBar.style.height = 16;
+toolbar.Add(_progressBar);
+
+// OnNodeCompleted 回调中：
+_progressBar.value = (float)_asyncExecutor.CompletedNodeCount / _asyncExecutor.TotalNodeCount * 100f;
+```
+
 ---
-以上就是完整的 5 个任务。核心改动集中在 4 个文件 + 1 个新建文件：
 
-| # | 任务 | 文件 | 性质 |
-|---|------|------|------|
-| 1 | 提取 `DeserializeParamValue` 为共享方法 | `Core/PCGParamHelper.cs` (新建) | 消除重复代码 |
-| 2 | 修复同步执行器参数传递 | `Graph/PCGGraphExecutor.cs` 第 197-202 行 | Bug 修复 |
-| 3 | 实现 ExportMeshNode + Prefab 保存 | `Nodes/Create/ExportMeshNode.cs` → 移到 `Nodes/Output/` | 功能实现 |
-| 4 | 清理误导性 TODO 日志 | `Core/PCGGeometryToMesh.cs` 第 17-18 行 | 清理 |
-| 5 | 添加端口类型兼容性检查 | `Graph/PCGGraphView.cs` | 防御性改进 |
+## 迭代四：高级功能
+
+> 目标：支持大型图的组织管理，提升专业用户的效率。
+
+### 4.1 节点分组与注释
+
+**改动文件**：`PCGGraphView.cs`, `PCGGraphData.cs`
+
+**具体方案**：
+
+```
+1. PCGGraphView.BuildContextualMenu 中添加：
+   - "Group Selection" → 创建 Group 元素包裹选中节点
+   - "Add Sticky Note" → 创建 StickyNote 元素
+
+2. PCGGraphData 中新增序列化字段：
+   - List<PCGGroupData> Groups  // { Title, NodeIds[], Position, Size }
+   - List<PCGStickyNoteData> StickyNotes  // { Title, Content, Position, Size }
+
+3. SaveToGraphData / LoadGraph 中处理 Group 和 StickyNote 的序列化/反序列化
+```
+
+### 4.2 SubGraph 完整实现
+
+**现状**：`SubGraphNode` 是空壳，`Execute` 只是透传输入，输入输出端口硬编码。 
+
+**改动文件**：`SubGraphNode.cs`, 新增 `SubGraphInputNode.cs`, `SubGraphOutputNode.cs`
+
+**具体方案**：
+
+```
+1. 新增 SubGraphInputNode / SubGraphOutputNode：
+   - 作为子图的入口/出口标记节点
+   - 端口定义由用户在子图中配置
+
+2. SubGraphNode.Execute() 改为：
+   - 加载 subGraphData
+   - 创建 PCGGraphExecutor 实例
+   - 将外部输入映射到 SubGraphInputNode 的输出
+   - 执行子图
+   - 从 SubGraphOutputNode 的输入收集结果返回
+
+3. SubGraphNode.GetSubGraphInputs/Outputs 改为：
+   - 从 subGraphData 中查找 SubGraphInputNode/OutputNode
+   - 动态生成端口定义
+
+4. PCGGraphEditorWindow 支持双击 SubGraph 节点进入子图编辑
+```
+
+### 4.3 Enum/Dropdown 参数类型
+
+**现状**：`PCGPortType` 没有 Enum 类型，需要枚举选择的参数只能用 Int 或 String。
+
+**改动文件**：`PCGParamSchema.cs`, `PCGNodeVisual.cs`, `PCGGraphView.cs`
+
+**具体方案**：
+
+```
+1. PCGParamSchema 新增字段：
+   public string[] EnumOptions;  // 可选，非 null 时渲染为下拉框
+
+2. PCGNodeVisual.CreateInlineWidget() 中：
+   - 在 switch 之前检查 schema.EnumOptions != null
+   - 如果有，创建 PopupField<string> 替代默认控件
+
+3. 序列化/反序列化中按 string 类型处理 enum 值
+
+4. 节点定义示例：
+   new PCGParamSchema("axis", PCGPortDirection.Input, PCGPortType.Int,
+       "Axis", "旋转轴", 0) { EnumOptions = new[] { "X", "Y", "Z" } }
+```
+
+### 4.4 Vector3 控件优化
+
+**现状**：Vector3 三个 FloatField 每个只有 45px 宽，操作困难。
+
+**改动文件**：`PCGNodeVisual.cs`
+
+**具体方案**：
+
+```csharp
+// 方案 A：增大宽度
+var fieldX = new FloatField("X") { value = defaultVal.x, style = { width = 58, fontSize = 9 } };
+
+// 方案 B：改为垂直排列（推荐，更清晰）
+var container = new VisualElement()
+{
+    style = { flexDirection = FlexDirection.Column, marginLeft = 4 }
+};
+```
+
+### 4.5 代码清理
+
+**现状**：`PCGNodeVisual.cs` 第 3 行和第 7 行重复引入 `UnityEditor.UIElements`。
+
+---
+
+## 迭代总览
+
+```mermaid
+gantt
+    title "PCG Graph UX 优化迭代计划"
+    dateFormat X
+    axisFormat %s
+
+    section "迭代一：基础操作"
+    "1.1 Save/SaveAs + 脏状态" :a1, 0, 1
+    "1.2 Undo/Redo" :a2, 0, 1
+    "1.3 键盘快捷键" :a3, 0, 1
+    "1.4 MiniMap" :a4, 0, 1
+
+    section "迭代二：操作效率"
+    "2.1 右键上下文菜单" :b1, 1, 2
+    "2.2 节点复制/粘贴" :b2, 1, 2
+    "2.3 端口拖拽过滤搜索" :b3, 1, 2
+    "2.4 端口 Tooltip" :b4, 1, 2
+    "2.5 Min/Max Slider" :b5, 1, 2
+
+    section "迭代三：预览调试"
+    "3.1 点击节点预览" :c1, 2, 3
+    "3.2 编辑器内错误面板" :c2, 2, 3
+    "3.3 执行进度条" :c3, 2, 3
+
+    section "迭代四：高级功能"
+    "4.1 节点分组与注释" :d1, 3, 4
+    "4.2 SubGraph 完整实现" :d2, 3, 4
+    "4.3 Enum Dropdown" :d3, 3, 4
+    "4.4 Vector3 控件优化" :d4, 3, 4
+    "4.5 代码清理" :d5, 3, 4
+```
+
+## 文件改动汇总
+
+| 文件 | 迭代一 | 迭代二 | 迭代三 | 迭代四 |
+|------|--------|--------|--------|--------|
+| `PCGGraphEditorWindow.cs` | 1.1, 1.2, 1.3 | — | 3.1, 3.2, 3.3 | — |
+| `PCGGraphView.cs` | 1.2, 1.3, 1.4 | 2.1, 2.2, 2.3 | 3.1 | 4.1 |
+| `PCGNodeVisual.cs` | 1.2 | 2.4, 2.5 | 3.2 | 4.3, 4.4, 4.5 |
+| `PCGNodeSearchWindow.cs` | — | 2.3 | — | — |
+| `PCGParamSchema.cs` | — | — | — | 4.3 |
+| `PCGGraphData.cs` | — | — | — | 4.1 |
+| `SubGraphNode.cs` | — | — | — | 4.2 |
+| 新增文件 | — | — | — | `SubGraphInputNode.cs`, `SubGraphOutputNode.cs` |
