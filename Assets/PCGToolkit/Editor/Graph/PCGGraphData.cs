@@ -68,9 +68,13 @@ namespace PCGToolkit.Graph
     public class PCGEdgeData
     {
         public string OutputNodeId;
-        public string OutputPortName;
+        public string OutputPort;  // P3-5: 统一命名为 OutputPort（原名 OutputPortName）
         public string InputNodeId;
-        public string InputPortName;
+        public string InputPort;   // P3-5: 统一命名为 InputPort（原名 InputPortName）
+
+        // P3-5: 向后兼容 - 使用旧字段名反序列化
+        [NonSerialized] public string OutputPortName;  // 运行时兼容
+        [NonSerialized] public string InputPortName;   // 运行时兼容
     }
     
     // 迭代四：节点分组数据

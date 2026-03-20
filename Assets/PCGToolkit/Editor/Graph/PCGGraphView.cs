@@ -212,11 +212,98 @@ namespace PCGToolkit.Graph
             if (selection.OfType<PCGNodeVisual>().Any())
             {
                 evt.menu.AppendSeparator();
-                evt.menu.AppendAction("Group Selection", _ => GroupSelection());
+                evt.menu.AppendAction("Cut", _ => CutSelection());
+                evt.menu.AppendAction("Copy", _ => CopySelection());
+                evt.menu.AppendAction("Paste", _ => PasteSelection(localMousePosition));
+                evt.menu.AppendSeparator();
                 evt.menu.AppendAction("Duplicate", _ => DuplicateSelection());
+                evt.menu.AppendAction("Group Selection", _ => GroupSelection());
                 evt.menu.AppendAction("Disconnect All", _ => DisconnectSelection());
                 evt.menu.AppendAction("Delete", _ => DeleteSelection());
             }
+        }
+
+        // P2-5: Cut/Copy/Paste 实现
+        private void CutSelection()
+        {
+            CopySelection();
+            DeleteSelection();
+        }
+
+        private void CopySelection()
+        {
+            var selectedNodes = selection.OfType<PCGNodeVisual>().ToList();
+            if (selectedNodes.Count == 0) return;
+
+            var data = SerializeSelection(selectedNodes);
+            GUIUtility.systemCopyBuffer = data;
+        }
+
+        private void PasteSelection(Vector2 position)
+        {
+            var data = GUIUtility.systemCopyBuffer;
+            if (string.IsNullOrEmpty(data)) return;
+
+            UnserializeAndPaste("Paste", data);
+        }
+
+        private string SerializeSelection(List<PCGNodeVisual> nodes)
+        {
+            var nodeDataList = new List<PCGNodeData>();
+            var edgeDataList = new List<PCGEdgeData>();
+
+            foreach (var nodeVisual in nodes)
+            {
+                var nodeData = new PCGNodeData
+                {
+                    NodeId = nodeVisual.NodeId,
+                    NodeType = nodeVisual.PCGNode.Name,
+                    Position = nodeVisual.GetPosition().position
+                };
+
+                var defaults = nodeVisual.GetPortDefaultValues();
+                if (defaults != null)
+                {
+                    nodeData.Parameters = new List<PCGSerializedParameter>();
+                    foreach (var kvp in defaults)
+                    {
+                        nodeData.Parameters.Add(new PCGSerializedParameter
+                        {
+                            Key = kvp.Key,
+                            ValueType = kvp.Value?.GetType().Name ?? "null",
+                            ValueJson = PCGParamHelper.SerializeParamValue(kvp.Value)
+                        });
+                    }
+                }
+
+                nodeDataList.Add(nodeData);
+            }
+
+            // 序列化选中节点之间的连接
+            foreach (var edge in edges)
+            {
+                var outputNode = edge.output.node as PCGNodeVisual;
+                var inputNode = edge.input.node as PCGNodeVisual;
+                if (outputNode != null && inputNode != null &&
+                    nodes.Contains(outputNode) && nodes.Contains(inputNode))
+                {
+                    edgeDataList.Add(new PCGEdgeData
+                    {
+                        OutputNodeId = outputNode.NodeId,
+                        OutputPort = edge.output.portName,
+                        InputNodeId = inputNode.NodeId,
+                        InputPort = edge.input.portName
+                    });
+                }
+            }
+
+            var tempData = new PCGGraphData
+            {
+                Nodes = nodeDataList,
+                Edges = edgeDataList
+            };
+
+            return JsonUtility.ToJson(tempData);
         }
         
         // ---- 迭代四：节点分组与注释 ----
@@ -284,7 +371,12 @@ namespace PCGToolkit.Graph
                 {
                     if (!visual.IsPortConnected(kvp.Key))
                     {
-                        nodeData.Parameters.Add(SerializeParamValue(kvp.Key, kvp.Value));
+                        nodeData.Parameters.Add(new PCGSerializedParameter
+                        {
+                            Key = kvp.Key,
+                            ValueType = kvp.Value?.GetType().Name ?? "null",
+                            ValueJson = PCGParamHelper.SerializeParamValue(kvp.Value)
+                        });
                     }
                 }
                 

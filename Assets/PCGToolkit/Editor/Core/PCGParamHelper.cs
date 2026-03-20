@@ -64,5 +64,31 @@ namespace PCGToolkit.Core
                 return param.ValueJson;
             }
         }
+
+        /// <summary>
+        /// 将值序列化为 JSON 字符串
+        /// </summary>
+        public static string SerializeParamValue(object value)
+        {
+            if (value == null) return "";
+
+            switch (value)
+            {
+                case float f:
+                    return f.ToString(CultureInfo.InvariantCulture);
+                case int i:
+                    return i.ToString();
+                case bool b:
+                    return b.ToString().ToLower();
+                case string s:
+                    return s;
+                case Vector3 v:
+                    return $"{v.x.ToString(CultureInfo.InvariantCulture)},{v.y.ToString(CultureInfo.InvariantCulture)},{v.z.ToString(CultureInfo.InvariantCulture)}";
+                case Color c:
+                    return $"{c.r.ToString(CultureInfo.InvariantCulture)},{c.g.ToString(CultureInfo.InvariantCulture)},{c.b.ToString(CultureInfo.InvariantCulture)},{c.a.ToString(CultureInfo.InvariantCulture)}";
+                default:
+                    return value.ToString();
+            }
+        }
     }
 }
