@@ -22,6 +22,8 @@ namespace PCGToolkit.Nodes.Curve
                 "Radius", "倒角半径", 0.1f),
             new PCGParamSchema("divisions", PCGPortDirection.Input, PCGPortType.Int,
                 "Divisions", "每个拐角的分段数", 4),
+            new PCGParamSchema("preserveEnds", PCGPortDirection.Input, PCGPortType.Bool,
+                "Preserve Ends", "保持两端点不变", true),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -35,15 +37,111 @@ namespace PCGToolkit.Nodes.Curve
             Dictionary<string, PCGGeometry> inputGeometries,
             Dictionary<string, object> parameters)
         {
-            ctx.Log("Fillet: 曲线倒角 (TODO)");
-
             var geo = GetInputGeometry(inputGeometries, "input").Clone();
+
+            if (geo.Points.Count < 3)
+            {
+                ctx.LogWarning("Fillet: 输入曲线点数不足");
+                return SingleOutput("geometry", geo);
+            }
+
             float radius = GetParamFloat(parameters, "radius", 0.1f);
-            int divisions = GetParamInt(parameters, "divisions", 4);
+            int divisions = Mathf.Max(1, GetParamInt(parameters, "divisions", 4));
+            bool preserveEnds = GetParamBool(parameters, "preserveEnds", true);
 
-            ctx.Log($"Fillet: radius={radius}, divisions={divisions}");
+            var newPoints = new List<Vector3>();
 
-            // TODO: 在每个拐角处生成圆弧段替代尖角
+            // 处理每个拐角（除了首尾）
+            for (int i = 0; i < geo.Points.Count; i++)
+            {
+                Vector3 current = geo.Points[i];
+
+                // 首尾点处理
+                if (i == 0 || i == geo.Points.Count - 1)
+                {
+                    if (preserveEnds || i == 0 || i == geo.Points.Count - 1)
+                    {
+                        newPoints.Add(current);
+                        continue;
+                    }
+                }
+
+                // 获取前后点
+                Vector3 prev = geo.Points[i - 1];
+                Vector3 next = geo.Points[i + 1];
+
+                // 计算前后方向
+                Vector3 dirIn = (current - prev).normalized;
+                Vector3 dirOut = (next - current).normalized;
+
+                // 计算夹角
+                float dot = Vector3.Dot(dirIn, dirOut);
+                float angle = Mathf.Acos(Mathf.Clamp(dot, -1f, 1f));
+
+                // 如果角度太小（接近直线），直接保留点
+                if (angle < 0.01f)
+                {
+                    newPoints.Add(current);
+                    continue;
+                }
+
+                // 计算倒角实际偏移距离（不能超过线段长度的一半）
+                float distToPrev = Vector3.Distance(prev, current);
+                float distToNext = Vector3.Distance(current, next);
+                float maxOffset = Mathf.Min(distToPrev, distToNext) * 0.4f;
+
+                // 计算倒角起点和终点距离拐角的距离
+                float tanHalfAngle = Mathf.Tan(angle * 0.5f);
+                float offsetDist = radius / tanHalfAngle;
+                offsetDist = Mathf.Min(offsetDist, maxOffset);
+
+                // 倒角的起点和终点
+                Vector3 filletStart = current - dirIn * offsetDist;
+                Vector3 filletEnd = current + dirOut * offsetDist;
+
+                // 计算圆弧中心
+                Vector3 bisector = (dirIn + dirOut).normalized;
+                float centerDist = offsetDist / Mathf.Sin(angle * 0.5f);
+                Vector3 center = current - bisector * (centerDist - radius / Mathf.Cos(angle * 0.5f));
+
+                // 计算圆弧平面
+                Vector3 normal = Vector3.Cross(dirIn, dirOut).normalized;
+                if (normal.sqrMagnitude < 0.001f)
+                    normal = Vector3.up;
+
+                // 添加倒角起点
+                newPoints.Add(filletStart);
+
+                // 生成圆弧段
+                float startAngle = Mathf.Atan2(
+                    Vector3.Dot(Vector3.Cross(normal, dirIn), bisector),
+                    Vector3.Dot(dirIn, bisector)
+                );
+                float endAngle = startAngle + angle;
+
+                for (int j = 1; j < divisions; j++)
+                {
+                    float t = (float)j / divisions;
+                    float a = Mathf.Lerp(startAngle, endAngle, t);
+
+                    // 在圆弧上的点
+                    Vector3 localPoint = new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a)) * radius;
+
+                    // 构建圆弧的局部坐标系
+                    Vector3 arcRight = dirIn;
+                    Vector3 arcForward = Vector3.Cross(normal, arcRight).normalized;
+
+                    Vector3 arcPoint = center + arcRight * localPoint.x + arcForward * localPoint.z;
+                    newPoints.Add(arcPoint);
+                }
+
+                // 添加倒角终点
+                newPoints.Add(filletEnd);
+            }
+
+            geo.Points = newPoints;
+
+            ctx.Log($"Fillet: radius={radius}, divisions={divisions}, points={geo.Points.Count}");
             return SingleOutput("geometry", geo);
         }
     }
