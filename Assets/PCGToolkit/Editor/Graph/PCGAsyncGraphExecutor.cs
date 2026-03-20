@@ -40,6 +40,22 @@ namespace PCGToolkit.Graph
         public Dictionary<string, PCGGeometry> Outputs;
         public bool Success;
         public string ErrorMessage;
+
+        /// <summary>
+        /// 便捷属性：获取第一个 Geometry 输出
+        /// </summary>
+        public PCGGeometry OutputGeometry
+        {
+            get
+            {
+                if (Outputs == null || Outputs.Count == 0) return null;
+                foreach (var kvp in Outputs)
+                {
+                    if (kvp.Value != null) return kvp.Value;
+                }
+                return null;
+            }
+        }
     }
 
     /// <summary>  
@@ -297,11 +313,11 @@ namespace PCGToolkit.Graph
             {
                 if (edge.InputNodeId == nodeData.NodeId)
                 {
-                    // 先尝试从几何体输出中获取  
+                    // 先尝试从几何体输出中获取
                     if (_nodeOutputs.TryGetValue(edge.OutputNodeId, out var outputs) &&
-                        outputs.TryGetValue(edge.OutputPortName, out var geo))
+                        outputs.TryGetValue(edge.OutputPort, out var geo))
                     {
-                        inputGeometries[edge.InputPortName] = geo;
+                        inputGeometries[edge.InputPort] = geo;
                     }
                 }
             }
@@ -319,11 +335,11 @@ namespace PCGToolkit.Graph
             {
                 if (edge.InputNodeId == nodeData.NodeId)
                 {
-                    var upstreamKey = $"{edge.OutputNodeId}.{edge.OutputPortName}";
+                    var upstreamKey = $"{edge.OutputNodeId}.{edge.OutputPort}";
                     if (_context.GlobalVariables.TryGetValue(upstreamKey, out var val))
                     {
-                        // 上游通过 GlobalVariables 传递的值覆盖默认值  
-                        parameters[edge.InputPortName] = val;
+                        // 上游通过 GlobalVariables 传递的值覆盖默认值
+                        parameters[edge.InputPort] = val;
                     }
                 }
             }

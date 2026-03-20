@@ -96,14 +96,15 @@ namespace PCGToolkit.Graph
         {
             if (nodeA == null || nodeB == null) return;
 
-            // 获取两个节点最近的端口对
             Port nearestOutPort = null;
             Port nearestInPort = null;
+            PCGNodeVisual targetNode = null; // 需要移动的节点  
             float minDist = float.MaxValue;
 
-            foreach (var portA in nodeA.outputPorts.Values)
+            // 正向：nodeA.output → nodeB.input  
+            foreach (var portA in nodeA.OutputPorts.Values)
             {
-                foreach (var portB in nodeB.inputPorts.Values)
+                foreach (var portB in nodeB.InputPorts.Values)
                 {
                     if (portA.portType != portB.portType &&
                         portA.portType != typeof(object) &&
@@ -116,21 +117,47 @@ namespace PCGToolkit.Graph
                         minDist = dist;
                         nearestOutPort = portA;
                         nearestInPort = portB;
+                        targetNode = nodeB;
                     }
                 }
             }
 
-            // 如果距离足够近，自动对齐
-            if (nearestOutPort != null && nearestInPort != null && minDist < 50f)
+            // 反向：nodeB.output → nodeA.input  
+            foreach (var portB in nodeB.OutputPorts.Values)
             {
-                var outPos = nearestOutPort.GetGlobalCenter();
-                var inPos = nearestInPort.GetGlobalCenter();
-                var offset = outPos - inPos;
+                foreach (var portA in nodeA.InputPorts.Values)
+                {
+                    if (portB.portType != portA.portType &&
+                        portB.portType != typeof(object) &&
+                        portA.portType != typeof(object))
+                        continue;
 
-                // 移动节点B使端口对齐
-                var newPos = nodeB.GetPosition();
-                newPos.position += offset;
-                nodeB.SetPosition(newPos);
+                    float dist = Vector2.Distance(portB.GetGlobalCenter(), portA.GetGlobalCenter());
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        nearestOutPort = portB;
+                        nearestInPort = portA;
+                        targetNode = nodeA;
+                    }
+                }
+            }
+
+            // 如果距离足够近，自动对齐  
+            if (nearestOutPort != null && nearestInPort != null && minDist < 50f)  
+            {  
+                var outPos = nearestOutPort.GetGlobalCenter();  
+                var inPos = nearestInPort.GetGlobalCenter();  
+  
+                // 将全局坐标转换到 GraphView 内容容器的本地坐标  
+                var outLocal = contentViewContainer.WorldToLocal(outPos);  
+                var inLocal = contentViewContainer.WorldToLocal(inPos);  
+                var offset = outLocal - inLocal;  
+  
+                // 移动节点B使端口对齐  
+                var newPos = nodeB.GetPosition();  
+                newPos.position += offset;  
+                nodeB.SetPosition(newPos);  
             }
         }
 
@@ -150,32 +177,6 @@ namespace PCGToolkit.Graph
                 // 清除过滤
                 _filterPortType = null;
                 _filterDirection = null;
-            };
-            
-            // 迭代四修复：注册端口拖拽事件
-            graphViewChanged += change =>
-            {
-                // 在拖拽连线时检测端口类型
-                if (change.edgesToCreate != null && change.edgesToCreate.Count > 0)
-                {
-                    var edge = change.edgesToCreate[0];
-                    if (edge.output != null && edge.output.portType != typeof(object))
-                    {
-                        // 记录输出端口类型用于下次创建节点时的过滤
-                        var portType = PCGPortType.Any;
-                        if (edge.output.portType == typeof(PCGToolkit.Core.PCGGeometry)) portType = PCGPortType.Geometry;
-                        else if (edge.output.portType == typeof(float)) portType = PCGPortType.Float;
-                        else if (edge.output.portType == typeof(int)) portType = PCGPortType.Int;
-                        else if (edge.output.portType == typeof(bool)) portType = PCGPortType.Bool;
-                        else if (edge.output.portType == typeof(string)) portType = PCGPortType.String;
-                        else if (edge.output.portType == typeof(Vector3)) portType = PCGPortType.Vector3;
-                        else if (edge.output.portType == typeof(Color)) portType = PCGPortType.Color;
-                        
-                        _filterPortType = portType;
-                        _filterDirection = Direction.Input;
-                    }
-                }
-                return change;
             };
         }
         
@@ -395,9 +396,9 @@ namespace PCGToolkit.Graph
                         edgeList.Add(new PCGEdgeData
                         {
                             OutputNodeId = outputVisual.NodeId,
-                            OutputPortName = outputVisual.FindPortSchemaName(edge.output),
+                            OutputPort = outputVisual.FindPortSchemaName(edge.output),
                             InputNodeId = inputVisual.NodeId,
-                            InputPortName = inputVisual.FindPortSchemaName(edge.input)
+                            InputPort = inputVisual.FindPortSchemaName(edge.input)
                         });
                     }
                 }
@@ -457,8 +458,8 @@ namespace PCGToolkit.Graph
                     if (!nodeVisualMap.TryGetValue(newOutputId, out var outputVisual)) continue;
                     if (!nodeVisualMap.TryGetValue(newInputId, out var inputVisual)) continue;
                     
-                    var outputPort = outputVisual.GetOutputPort(edgeData.OutputPortName);
-                    var inputPort = inputVisual.GetInputPort(edgeData.InputPortName);
+                    var outputPort = outputVisual.GetOutputPort(edgeData.OutputPort);
+                    var inputPort = inputVisual.GetInputPort(edgeData.InputPort);
                     if (outputPort == null || inputPort == null) continue;
                     
                     var edge = outputPort.ConnectTo(inputPort);
@@ -655,15 +656,15 @@ namespace PCGToolkit.Graph
                 if (!nodeVisualMap.TryGetValue(edgeData.OutputNodeId, out var outputVisual)) continue;  
                 if (!nodeVisualMap.TryGetValue(edgeData.InputNodeId, out var inputVisual)) continue;  
   
-                var outputPort = outputVisual.GetOutputPort(edgeData.OutputPortName);  
-                var inputPort = inputVisual.GetInputPort(edgeData.InputPortName);  
+                var outputPort = outputVisual.GetOutputPort(edgeData.OutputPort);
+                var inputPort = inputVisual.GetInputPort(edgeData.InputPort);  
                 if (outputPort == null || inputPort == null) continue;  
   
                 var edge = outputPort.ConnectTo(inputPort);  
                 AddElement(edge);  
   
-                // 隐藏已连接端口的内联编辑器  
-                inputVisual.OnPortConnectionChanged(edgeData.InputPortName, true);  
+                // 隐藏已连接端口的内联编辑器
+                inputVisual.OnPortConnectionChanged(edgeData.InputPort, true);  
             }
             
             // 迭代四修复：加载 Groups
@@ -730,12 +731,12 @@ namespace PCGToolkit.Graph
                 if (edge.output?.node is PCGNodeVisual outputVisual &&  
                     edge.input?.node is PCGNodeVisual inputVisual)  
                 {  
-                    var edgeData = new PCGEdgeData  
-                    {  
-                        OutputNodeId = outputVisual.NodeId,  
-                        OutputPortName = outputVisual.FindPortSchemaName(edge.output),  
-                        InputNodeId = inputVisual.NodeId,  
-                        InputPortName = inputVisual.FindPortSchemaName(edge.input)  
+                    var edgeData = new PCGEdgeData
+                    {
+                        OutputNodeId = outputVisual.NodeId,
+                        OutputPort = outputVisual.FindPortSchemaName(edge.output),
+                        InputNodeId = inputVisual.NodeId,
+                        InputPort = inputVisual.FindPortSchemaName(edge.input)
                     };  
                     data.Edges.Add(edgeData);  
                 }  
@@ -834,11 +835,31 @@ namespace PCGToolkit.Graph
             return param;
         }
         
-        private GraphViewChange OnGraphViewChanged(GraphViewChange change)  
+        private GraphViewChange OnGraphViewChanged(GraphViewChange change)
         {
             // 迭代一：通知脏状态变更
             OnGraphChanged?.Invoke();
-            
+
+            // 迭代四修复：在拖拽连线时检测端口类型（用于搜索窗口过滤）
+            if (change.edgesToCreate != null && change.edgesToCreate.Count > 0)
+            {
+                var edge = change.edgesToCreate[0];
+                if (edge.output != null && edge.output.portType != typeof(object))
+                {
+                    var portType = PCGPortType.Any;
+                    if (edge.output.portType == typeof(PCGToolkit.Core.PCGGeometry)) portType = PCGPortType.Geometry;
+                    else if (edge.output.portType == typeof(float)) portType = PCGPortType.Float;
+                    else if (edge.output.portType == typeof(int)) portType = PCGPortType.Int;
+                    else if (edge.output.portType == typeof(bool)) portType = PCGPortType.Bool;
+                    else if (edge.output.portType == typeof(string)) portType = PCGPortType.String;
+                    else if (edge.output.portType == typeof(Vector3)) portType = PCGPortType.Vector3;
+                    else if (edge.output.portType == typeof(Color)) portType = PCGPortType.Color;
+
+                    _filterPortType = portType;
+                    _filterDirection = Direction.Input;
+                }
+            }
+
             // 处理新建连线 → 隐藏内联编辑器  
             if (change.edgesToCreate != null)  
             {  

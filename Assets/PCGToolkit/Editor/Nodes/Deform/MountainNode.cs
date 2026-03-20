@@ -61,12 +61,12 @@ namespace PCGToolkit.Nodes.Deform
             int seed = GetParamInt(parameters, "seed", 0);
             string noiseType = GetParamString(parameters, "noiseType", "perlin").ToLower();
 
-            // 设置随机种子
-            UnityEngine.Random.InitState(seed);
+            // 使用独立的 System.Random 实例，避免污染全局随机状态
+            var rng = new System.Random(seed);
             Vector3 offset = new Vector3(
-                UnityEngine.Random.value * 1000f,
-                UnityEngine.Random.value * 1000f,
-                UnityEngine.Random.value * 1000f
+                (float)rng.NextDouble() * 1000f,
+                (float)rng.NextDouble() * 1000f,
+                (float)rng.NextDouble() * 1000f
             );
 
             // 预计算顶点法线

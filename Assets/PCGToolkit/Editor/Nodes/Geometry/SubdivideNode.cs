@@ -53,37 +53,42 @@ namespace PCGToolkit.Nodes.Geometry
         {
             var result = new PCGGeometry();
 
-            // Linear 细分：每个四边形分成 4 个，每个三角形分成 4 个
+            // 第一步：复制所有原始顶点
+            for (int i = 0; i < geo.Points.Count; i++)
+            {
+                result.Points.Add(geo.Points[i]);
+            }
+
+            // 第二步：为每条边创建共享中点（key 为排序后的顶点对）
+            var edgeMidpoints = new Dictionary<(int, int), int>();
+
+            int GetOrCreateMidpoint(int a, int b)
+            {
+                var key = a < b ? (a, b) : (b, a);
+                if (edgeMidpoints.TryGetValue(key, out int midIdx))
+                    return midIdx;
+                midIdx = result.Points.Count;
+                result.Points.Add((geo.Points[a] + geo.Points[b]) * 0.5f);
+                edgeMidpoints[key] = midIdx;
+                return midIdx;
+            }
+
+            // 第三步：细分每个面
             foreach (var prim in geo.Primitives)
             {
                 if (prim.Length == 4)
                 {
-                    // 四边形细分
-                    int v0 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[0]]);
-                    int v1 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[1]]);
-                    int v2 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[2]]);
-                    int v3 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[3]]);
+                    int v0 = prim[0], v1 = prim[1], v2 = prim[2], v3 = prim[3];
+                    int m01 = GetOrCreateMidpoint(v0, v1);
+                    int m12 = GetOrCreateMidpoint(v1, v2);
+                    int m23 = GetOrCreateMidpoint(v2, v3);
+                    int m30 = GetOrCreateMidpoint(v3, v0);
 
-                    // 边中点
-                    int m01 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[0]] + geo.Points[prim[1]]) * 0.5f);
-                    int m12 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[1]] + geo.Points[prim[2]]) * 0.5f);
-                    int m23 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[2]] + geo.Points[prim[3]]) * 0.5f);
-                    int m30 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[3]] + geo.Points[prim[0]]) * 0.5f);
-
-                    // 中心点
+                    // 中心点（每个面独有）
                     int center = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[0]] + geo.Points[prim[1]] + 
-                                       geo.Points[prim[2]] + geo.Points[prim[3]]) * 0.25f);
+                    result.Points.Add((geo.Points[v0] + geo.Points[v1] +
+                                       geo.Points[v2] + geo.Points[v3]) * 0.25f);
 
-                    // 4 个子四边形
                     result.Primitives.Add(new int[] { v0, m01, center, m30 });
                     result.Primitives.Add(new int[] { m01, v1, m12, center });
                     result.Primitives.Add(new int[] { center, m12, v2, m23 });
@@ -91,23 +96,11 @@ namespace PCGToolkit.Nodes.Geometry
                 }
                 else if (prim.Length == 3)
                 {
-                    // 三角形细分
-                    int v0 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[0]]);
-                    int v1 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[1]]);
-                    int v2 = result.Points.Count;
-                    result.Points.Add(geo.Points[prim[2]]);
+                    int v0 = prim[0], v1 = prim[1], v2 = prim[2];
+                    int m01 = GetOrCreateMidpoint(v0, v1);
+                    int m12 = GetOrCreateMidpoint(v1, v2);
+                    int m20 = GetOrCreateMidpoint(v2, v0);
 
-                    // 边中点
-                    int m01 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[0]] + geo.Points[prim[1]]) * 0.5f);
-                    int m12 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[1]] + geo.Points[prim[2]]) * 0.5f);
-                    int m20 = result.Points.Count;
-                    result.Points.Add((geo.Points[prim[2]] + geo.Points[prim[0]]) * 0.5f);
-
-                    // 4 个子三角形
                     result.Primitives.Add(new int[] { v0, m01, m20 });
                     result.Primitives.Add(new int[] { m01, v1, m12 });
                     result.Primitives.Add(new int[] { m20, m12, v2 });
@@ -115,10 +108,8 @@ namespace PCGToolkit.Nodes.Geometry
                 }
                 else
                 {
-                    // 其他多边形：直接复制
+                    // 其他多边形：直接复制（索引已经有效，因为原始顶点已在 result 中）
                     result.Primitives.Add((int[])prim.Clone());
-                    foreach (int idx in prim)
-                        result.Points.Add(geo.Points[idx]);
                 }
             }
 

@@ -17,6 +17,10 @@ namespace PCGToolkit.Graph
         private Dictionary<string, Port> inputPorts = new Dictionary<string, Port>();
         private Dictionary<string, Port> outputPorts = new Dictionary<string, Port>();
 
+        // 公开只读访问  
+        public IReadOnlyDictionary<string, Port> InputPorts => inputPorts;  
+        public IReadOnlyDictionary<string, Port> OutputPorts => outputPorts;
+        
         // ---- 执行调试相关 ----
         private Label _executionTimeLabel;
         private VisualElement _highlightBorder;

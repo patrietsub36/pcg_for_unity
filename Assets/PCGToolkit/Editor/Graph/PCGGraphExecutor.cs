@@ -103,7 +103,7 @@ namespace PCGToolkit.Graph
                 }
             }
 
-            var sortedNodes = TopologicalSort();
+            var sortedNodes = PCGGraphHelper.TopologicalSort(graphData);
             if (sortedNodes == null) return;
 
             foreach (var nodeData in sortedNodes)
@@ -134,65 +134,6 @@ namespace PCGToolkit.Graph
         }
 
         /// <summary>
-        /// 拓扑排序（Kahn 算法）
-        /// </summary>
-        private List<PCGNodeData> TopologicalSort()
-        {
-            var nodeMap = new Dictionary<string, PCGNodeData>();
-            var inDegree = new Dictionary<string, int>();
-            var adjacency = new Dictionary<string, List<string>>();
-
-            foreach (var node in graphData.Nodes)
-            {
-                nodeMap[node.NodeId] = node;
-                inDegree[node.NodeId] = 0;
-                adjacency[node.NodeId] = new List<string>();
-            }
-
-            foreach (var edge in graphData.Edges)
-            {
-                // 数据从 OutputNode 流向 InputNode
-                if (adjacency.ContainsKey(edge.OutputNodeId) && inDegree.ContainsKey(edge.InputNodeId))
-                {
-                    adjacency[edge.OutputNodeId].Add(edge.InputNodeId);
-                    inDegree[edge.InputNodeId]++;
-                }
-            }
-
-            // BFS：从入度为 0 的节点开始
-            var queue = new Queue<string>();
-            foreach (var kvp in inDegree)
-            {
-                if (kvp.Value == 0)
-                    queue.Enqueue(kvp.Key);
-            }
-
-            var sorted = new List<PCGNodeData>();
-            while (queue.Count > 0)
-            {
-                var nodeId = queue.Dequeue();
-                sorted.Add(nodeMap[nodeId]);
-
-                foreach (var neighbor in adjacency[nodeId])
-                {
-                    inDegree[neighbor]--;
-                    if (inDegree[neighbor] == 0)
-                        queue.Enqueue(neighbor);
-                }
-            }
-
-            // 如果排序结果数量不等于节点数量，说明存在环
-            if (sorted.Count != graphData.Nodes.Count)
-            {
-                Debug.LogError(
-                    $"PCGGraphExecutor: Cycle detected! Sorted {sorted.Count} nodes out of {graphData.Nodes.Count}.");
-                return null;
-            }
-
-            return sorted;
-        }
-
-        /// <summary>
         /// 执行单个节点
         /// </summary>
         private void ExecuteNode(PCGNodeData nodeData)
@@ -214,9 +155,9 @@ namespace PCGToolkit.Graph
                 if (edge.InputNodeId == nodeData.NodeId)
                 {
                     if (_nodeOutputs.TryGetValue(edge.OutputNodeId, out var outputs) &&
-                        outputs.TryGetValue(edge.OutputPortName, out var geo))
+                        outputs.TryGetValue(edge.OutputPort, out var geo))
                     {
-                        inputGeometries[edge.InputPortName] = geo;
+                        inputGeometries[edge.InputPort] = geo;
                     }
                 }
             }
@@ -233,10 +174,10 @@ namespace PCGToolkit.Graph
             {
                 if (edge.InputNodeId == nodeData.NodeId)
                 {
-                    var upstreamKey = $"{edge.OutputNodeId}.{edge.OutputPortName}";
+                    var upstreamKey = $"{edge.OutputNodeId}.{edge.OutputPort}";
                     if (context.GlobalVariables.TryGetValue(upstreamKey, out var val))
                     {
-                        parameters[edge.InputPortName] = val;
+                        parameters[edge.InputPort] = val;
                     }
                 }
             }

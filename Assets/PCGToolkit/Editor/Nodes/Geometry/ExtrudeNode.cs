@@ -59,6 +59,13 @@ namespace PCGToolkit.Nodes.Geometry
 
             var result = new PCGGeometry();
 
+            // 第一步：复制所有原始顶点到 result（保持 1:1 索引映射）
+            // 这样非挤出面的原始索引在 result 中仍然有效
+            for (int i = 0; i < geo.Points.Count; i++)
+            {
+                result.Points.Add(geo.Points[i]);
+            }
+
             // 确定要挤出的面
             HashSet<int> primsToExtrude = new HashSet<int>();
             if (!string.IsNullOrEmpty(group) && geo.PrimGroups.TryGetValue(group, out var groupPrims))
@@ -71,9 +78,16 @@ namespace PCGToolkit.Nodes.Geometry
                     primsToExtrude.Add(i);
             }
 
-            // 记录原始顶点到新顶点的映射
-            Dictionary<int, List<int>> extrudedVertices = new Dictionary<int, List<int>>();
+            // 第二步：添加未挤出的原始面（索引仍然有效，因为原始顶点已 1:1 复制到 result）
+            for (int i = 0; i < geo.Primitives.Count; i++)
+            {
+                if (!primsToExtrude.Contains(i))
+                {
+                    result.Primitives.Add((int[])geo.Primitives[i].Clone());
+                }
+            }
 
+            // 第三步：处理挤出面
             foreach (int primIdx in primsToExtrude)
             {
                 var prim = geo.Primitives[primIdx];
@@ -85,10 +99,10 @@ namespace PCGToolkit.Nodes.Geometry
                 foreach (int idx in prim) center += geo.Points[idx];
                 center /= prim.Length;
 
-                // 记录当前面的顶点在 result.Points 中的起始偏移
-                int baseOffset = result.Points.Count;
+                // 第一层使用原始顶点索引（已在 result.Points 中，索引 0 ~ geo.Points.Count-1）
+                int[] prevLayerVertices = (int[])prim.Clone();
 
-                for (int d = 0; d <= divisions; d++)
+                for (int d = 1; d <= divisions; d++)
                 {
                     float t = (float)d / divisions;
                     float offset = distance * t;
@@ -98,61 +112,43 @@ namespace PCGToolkit.Nodes.Geometry
                     for (int i = 0; i < prim.Length; i++)
                     {
                         Vector3 origPos = geo.Points[prim[i]];
-                        Vector3 toCenter = center - origPos;
-                        Vector3 newPos = origPos + normal * offset + toCenter.normalized * insetAmount;
+                        Vector3 toCenter = (center - origPos);
+                        float toCenterMag = toCenter.magnitude;
+                        Vector3 toCenterDir = toCenterMag > 0.0001f ? toCenter / toCenterMag : Vector3.zero;
+                        Vector3 newPos = origPos + normal * offset + toCenterDir * insetAmount;
 
                         int newIdx = result.Points.Count;
                         result.Points.Add(newPos);
                         layerVertices[i] = newIdx;
-
-                        if (!extrudedVertices.ContainsKey(prim[i]))
-                            extrudedVertices[prim[i]] = new List<int>();
-                        extrudedVertices[prim[i]].Add(newIdx);
                     }
 
-                    // 创建侧面（除了第一层）
-                    if (d > 0 && outputSide)
+                    // 创建侧面
+                    if (outputSide)
                     {
                         for (int i = 0; i < prim.Length; i++)
                         {
                             int next = (i + 1) % prim.Length;
-                            // 前一层的顶点索引 = baseOffset + (d-1)*prim.Length + i
-                            int prevIdx = baseOffset + (d - 1) * prim.Length + i;
-                            int prevNextIdx = baseOffset + (d - 1) * prim.Length + next;
-                            
-                            result.Primitives.Add(new int[] { prevIdx, prevNextIdx, layerVertices[next], layerVertices[i] });
+                            result.Primitives.Add(new int[]
+                            {
+                                prevLayerVertices[i], prevLayerVertices[next],
+                                layerVertices[next], layerVertices[i]
+                            });
                         }
                     }
+
+                    prevLayerVertices = layerVertices;
                 }
 
                 // 输出顶面
                 if (outputFront)
                 {
-                    int lastLayerStart = baseOffset + divisions * prim.Length;
+                    // 使用最后一层的顶点，反转绕序使法线朝外
                     int[] frontPrim = new int[prim.Length];
                     for (int i = 0; i < prim.Length; i++)
                     {
-                        frontPrim[i] = lastLayerStart + (prim.Length - 1 - i);
+                        frontPrim[i] = prevLayerVertices[i];
                     }
                     result.Primitives.Add(frontPrim);
-                }
-            }
-
-            // 添加未挤出的原始面
-            for (int i = 0; i < geo.Primitives.Count; i++)
-            {
-                if (!primsToExtrude.Contains(i))
-                {
-                    result.Primitives.Add((int[])geo.Primitives[i].Clone());
-                }
-            }
-
-            // 添加未涉及的原始顶点
-            for (int i = 0; i < geo.Points.Count; i++)
-            {
-                if (!extrudedVertices.ContainsKey(i))
-                {
-                    result.Points.Add(geo.Points[i]);
                 }
             }
 

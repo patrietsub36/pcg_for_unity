@@ -101,5 +101,37 @@ namespace PCGToolkit.Core
             HasError = false;
             ErrorMessage = null;
         }
+
+        /// <summary>
+        /// 设置外部输入（用于 SubGraph 注入数据）
+        /// </summary>
+        public void SetExternalInput(string key, PCGGeometry geometry)
+        {
+            NodeOutputCache[$"__external_input__.{key}"] = geometry;
+        }
+
+        /// <summary>
+        /// 尝试获取外部输出（用于 SubGraph 读取子图结果）
+        /// </summary>
+        public bool TryGetExternalOutput(string key, out PCGGeometry geometry)
+        {
+            return NodeOutputCache.TryGetValue($"__external_output__.{key}", out geometry);
+        }
+
+        /// <summary>
+        /// 设置外部输出（由子图的 Output 节点调用）
+        /// </summary>
+        public void SetExternalOutput(string key, PCGGeometry geometry)
+        {
+            NodeOutputCache[$"__external_output__.{key}"] = geometry;
+        }
+        
+        /// <summary>  
+        /// 尝试获取外部输入（由子图的 Input 节点调用）  
+        /// </summary>  
+        public bool TryGetExternalInput(string key, out PCGGeometry geometry)  
+        {  
+            return NodeOutputCache.TryGetValue($"__external_input__.{key}", out geometry);  
+        }
     }
 }

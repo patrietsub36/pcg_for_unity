@@ -49,6 +49,9 @@ namespace PCGToolkit.Core
         public PCGAttribute Clone()
         {
             var clone = new PCGAttribute(Name, Type, DefaultValue);
+            // 浅拷贝 Values 列表。对于 PCG 中使用的类型（float, int, Vector3, Color 等值类型
+            // 以及 string 不可变引用类型），浅拷贝是安全的。
+            // 如果未来添加可变引用类型的属性值，需要改为深拷贝。
             clone.Values = new List<object>(Values);
             return clone;
         }

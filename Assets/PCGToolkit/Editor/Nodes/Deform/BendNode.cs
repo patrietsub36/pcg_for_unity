@@ -56,6 +56,14 @@ namespace PCGToolkit.Nodes.Deform
 
             // 计算弯曲半径（角度越大，半径越小）
             float angleRad = angle * Mathf.Deg2Rad;
+
+            // 角度接近 0 时不进行弯曲变形
+            if (Mathf.Abs(angleRad) < 0.0001f)
+            {
+                ctx.Log("Bend: angle is near zero, no deformation applied");
+                return SingleOutput("geometry", geo);
+            }
+
             float radius = captureLength / angleRad;
 
             // 对每个点应用弯曲变换

@@ -110,10 +110,12 @@ namespace PCGToolkit.Nodes.Output
 
             ctx.Log($"SavePrefab: 已保存到 {savePath}");
 
+            // 将 prefabPath 通过 GlobalVariables 传递
+            ctx.GlobalVariables[$"{ctx.CurrentNodeId}.prefabPath"] = savePath;
+
             return new Dictionary<string, PCGGeometry>
             {
-                { "geometry", geo },
-                { "prefabPath", new PCGGeometry { DetailAttribs = new AttributeStore().SetAttribute("value", savePath) } }
+                { "geometry", geo }
             };
         }
     }

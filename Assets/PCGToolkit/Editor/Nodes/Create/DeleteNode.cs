@@ -53,7 +53,6 @@ namespace PCGToolkit.Nodes.Create
 
             if (!string.IsNullOrEmpty(group))
             {
-                // 从分组获取要删除的点
                 if (geo.PointGroups.TryGetValue(group, out var groupPoints))
                 {
                     toDelete = new HashSet<int>(groupPoints);
@@ -61,13 +60,11 @@ namespace PCGToolkit.Nodes.Create
             }
             else if (!string.IsNullOrEmpty(filter))
             {
-                // 简单表达式解析：支持 @P.y > value 格式
                 toDelete = EvaluateFilter(geo, filter);
             }
 
             if (deleteNonSelected)
             {
-                // 反转：删除未选中的
                 var newToDelete = new HashSet<int>();
                 for (int i = 0; i < geo.Points.Count; i++)
                 {
@@ -88,6 +85,20 @@ namespace PCGToolkit.Nodes.Create
                 }
             }
 
+            // ===== 同步 PointAttribs =====
+            int originalPointCount = geo.Points.Count;
+            foreach (var attr in geo.PointAttribs.GetAllAttributes())
+            {
+                if (attr.Values.Count == 0) continue;
+                var newValues = new List<object>();
+                for (int i = 0; i < Mathf.Min(attr.Values.Count, originalPointCount); i++)
+                {
+                    if (!toDelete.Contains(i))
+                        newValues.Add(attr.Values[i]);
+                }
+                attr.Values = newValues;
+            }
+
             // 创建新的顶点列表
             var newPoints = new List<Vector3>();
             for (int i = 0; i < geo.Points.Count; i++)
@@ -97,10 +108,12 @@ namespace PCGToolkit.Nodes.Create
             }
             geo.Points = newPoints;
 
-            // 过滤面：删除包含被删除点的面
+            // 过滤面：删除包含被删除点的面，同时记录保留的面索引
             var newPrims = new List<int[]>();
-            foreach (var prim in geo.Primitives)
+            var keptPrimIndices = new List<int>();
+            for (int primIdx = 0; primIdx < geo.Primitives.Count; primIdx++)
             {
+                var prim = geo.Primitives[primIdx];
                 bool keep = true;
                 foreach (int idx in prim)
                 {
@@ -116,9 +129,23 @@ namespace PCGToolkit.Nodes.Create
                     for (int i = 0; i < prim.Length; i++)
                         newPrim[i] = indexMap[prim[i]];
                     newPrims.Add(newPrim);
+                    keptPrimIndices.Add(primIdx);
                 }
             }
             geo.Primitives = newPrims;
+
+            // ===== 同步 PrimAttribs =====
+            foreach (var attr in geo.PrimAttribs.GetAllAttributes())
+            {
+                if (attr.Values.Count == 0) continue;
+                var newValues = new List<object>();
+                foreach (int ki in keptPrimIndices)
+                {
+                    if (ki < attr.Values.Count)
+                        newValues.Add(attr.Values[ki]);
+                }
+                attr.Values = newValues;
+            }
 
             // 更新分组
             var newPointGroups = new Dictionary<string, HashSet<int>>();
@@ -134,6 +161,27 @@ namespace PCGToolkit.Nodes.Create
                     newPointGroups[kvp.Key] = newGroup;
             }
             geo.PointGroups = newPointGroups;
+
+            // ===== 同步 PrimGroups =====
+            var newPrimGroups = new Dictionary<string, HashSet<int>>();
+            // 构建旧面索引 -> 新面索引的映射
+            var primIndexMap = new Dictionary<int, int>();
+            for (int i = 0; i < keptPrimIndices.Count; i++)
+            {
+                primIndexMap[keptPrimIndices[i]] = i;
+            }
+            foreach (var kvp in geo.PrimGroups)
+            {
+                var newGroup = new HashSet<int>();
+                foreach (int idx in kvp.Value)
+                {
+                    if (primIndexMap.TryGetValue(idx, out int mapped))
+                        newGroup.Add(mapped);
+                }
+                if (newGroup.Count > 0)
+                    newPrimGroups[kvp.Key] = newGroup;
+            }
+            geo.PrimGroups = newPrimGroups;
 
             return SingleOutput("geometry", geo);
         }

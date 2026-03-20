@@ -261,7 +261,10 @@ namespace PCGToolkit.Core
             float dot02 = Vector3.Dot(v0, v2);
             float dot11 = Vector3.Dot(v1, v1);
             float dot12 = Vector3.Dot(v1, v2);
-            float inv = 1f / (dot00 * dot11 - dot01 * dot01);
+            float denom = dot00 * dot11 - dot01 * dot01;
+            // 退化三角形保护：面积为零时直接返回 false
+            if (Mathf.Abs(denom) < 1e-8f) return false;
+            float inv = 1f / denom;
             float u = (dot11 * dot02 - dot01 * dot12) * inv;
             float v = (dot00 * dot12 - dot01 * dot02) * inv;
             return u >= 0 && v >= 0 && u + v <= 1;

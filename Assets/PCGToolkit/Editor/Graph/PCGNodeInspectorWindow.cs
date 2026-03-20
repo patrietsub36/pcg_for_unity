@@ -343,7 +343,7 @@ namespace PCGToolkit.Graph
                         fontSize = 10,
                         color = new StyleColor(new Color(0.5f, 0.7f, 0.5f)),
                         marginTop = 2,
-                        fontStyle = FontStyle.Italic,
+                        unityFontStyleAndWeight = FontStyle.Italic
                     }
                 };
                 container.Add(connectedLabel);
@@ -534,8 +534,6 @@ namespace PCGToolkit.Graph
         private void SyncValueToNode(PCGNodeVisual nodeVisual, string paramName, object value)
         {
             // 更新节点内部的默认值字典
-            var defaults = nodeVisual.GetPortDefaultValues();
-            defaults[paramName] = value;
             nodeVisual.SetPortDefaultValues(new Dictionary<string, object> { { paramName, value } });
             
             // 通知图变更（脏状态）

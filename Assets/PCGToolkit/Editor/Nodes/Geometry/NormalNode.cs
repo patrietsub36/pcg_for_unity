@@ -60,6 +60,71 @@ namespace PCGToolkit.Nodes.Geometry
                     }
                     break;
 
+                case "vertex":
+                    // 顶点法线（每个面的每个顶点独立，实现硬边效果）
+                    // 使用 cusp angle 判断是否共享法线
+                    float cuspRad = cuspAngle * Mathf.Deg2Rad;
+                    float cuspCos = Mathf.Cos(cuspRad);
+
+                    // 先计算所有面法线
+                    Vector3[] faceNormals = new Vector3[geo.Primitives.Count];
+                    for (int p = 0; p < geo.Primitives.Count; p++)
+                    {
+                        faceNormals[p] = CalculateFaceNormal(geo, p);
+                    }
+
+                    // 为每个点收集相邻面
+                    var pointToFaces = new Dictionary<int, List<int>>();
+                    for (int p = 0; p < geo.Primitives.Count; p++)
+                    {
+                        foreach (int idx in geo.Primitives[p])
+                        {
+                            if (!pointToFaces.ContainsKey(idx))
+                                pointToFaces[idx] = new List<int>();
+                            pointToFaces[idx].Add(p);
+                        }
+                    }
+
+                    // 为每个点计算法线（考虑 cusp angle）
+                    Vector3[] vertexNormals = new Vector3[geo.Points.Count];
+                    for (int i = 0; i < geo.Points.Count; i++)
+                    {
+                        if (!pointToFaces.TryGetValue(i, out var adjacentFaces))
+                        {
+                            vertexNormals[i] = Vector3.up;
+                            continue;
+                        }
+
+                        Vector3 avgNormal = Vector3.zero;
+                        foreach (int faceIdx in adjacentFaces)
+                        {
+                            // 检查与其他相邻面的角度
+                            bool withinCusp = true;
+                            foreach (int otherFaceIdx in adjacentFaces)
+                            {
+                                if (faceIdx == otherFaceIdx) continue;
+                                float dot = Vector3.Dot(faceNormals[faceIdx], faceNormals[otherFaceIdx]);
+                                if (dot < cuspCos)
+                                {
+                                    withinCusp = false;
+                                    break;
+                                }
+                            }
+                            float area = weightByArea ? CalculateFaceArea(geo, faceIdx) : 1f;
+                            avgNormal += faceNormals[faceIdx] * area;
+                        }
+
+                        vertexNormals[i] = avgNormal.sqrMagnitude > 0.0001f
+                            ? avgNormal.normalized
+                            : Vector3.up;
+                    }
+
+                    for (int i = 0; i < geo.Points.Count; i++)
+                    {
+                        normalAttr.Values.Add(vertexNormals[i]);
+                    }
+                    break;
+
                 case "point":
                 default:
                     // 点法线：平均相邻面的法线

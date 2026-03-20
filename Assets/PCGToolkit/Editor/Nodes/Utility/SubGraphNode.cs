@@ -44,15 +44,15 @@ namespace PCGToolkit.Nodes.Utility
             }
 
             // 加载子图数据
-            var subGraphAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<PCGGraphAsset>(subGraphPath);
-            if (subGraphAsset == null || subGraphAsset.GraphData == null)
+            var subGraphAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<PCGGraphData>(subGraphPath);
+            if (subGraphAsset == null)
             {
                 ctx.LogWarning($"SubGraph: Failed to load subgraph at {subGraphPath}");
                 return SingleOutput("geometry", new PCGGeometry());
             }
 
             // 创建子图执行器
-            var subExecutor = new PCGGraphExecutor(subGraphAsset.GraphData);
+            var subExecutor = new PCGGraphExecutor(subGraphAsset);
 
             // 准备输入数据（注入到 context）
             var inputGeo = GetInputGeometry(inputGeometries, "input");

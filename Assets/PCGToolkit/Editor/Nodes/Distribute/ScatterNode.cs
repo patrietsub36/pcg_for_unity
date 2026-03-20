@@ -93,6 +93,8 @@ namespace PCGToolkit.Nodes.Distribute
 
             // 按面积加权随机选择面并生成点
             List<Vector3> points = new List<Vector3>();
+            List<int> sourcePrimIndices = new List<int>(); // 记录每个点的来源面索引
+
             for (int i = 0; i < count; i++)
             {
                 // 按面积随机选择面
@@ -114,6 +116,7 @@ namespace PCGToolkit.Nodes.Distribute
                 {
                     Vector3 point = SamplePointOnPrim(inputGeo, selectedPrim, rng);
                     points.Add(point);
+                    sourcePrimIndices.Add(selectedPrim);
                 }
             }
 
@@ -125,8 +128,13 @@ namespace PCGToolkit.Nodes.Distribute
 
             // 输出点几何体
             geo.Points = points;
-            // 创建索引属性（原始面索引）
+
+            // 创建索引属性（原始面索引）并填充值
             var indexAttr = geo.PointAttribs.CreateAttribute("sourcePrim", AttribType.Int);
+            foreach (var idx in sourcePrimIndices)
+            {
+                indexAttr.Values.Add(idx);
+            }
 
             return SingleOutput("geometry", geo);
         }

@@ -82,8 +82,19 @@ namespace PCGToolkit.Nodes.Distribute
                 // 从属性读取旋转
                 if (orientAttr != null && pointIdx < orientAttr.Values.Count)
                 {
-                    var orient = (Vector3)orientAttr.Values[pointIdx];
-                    rotation = Quaternion.Euler(orient);
+                    var orientVal = orientAttr.Values[pointIdx];
+                    if (orientVal is Vector3 euler)
+                    {
+                        rotation = Quaternion.Euler(euler);
+                    }
+                    else if (orientVal is Vector4 quat)
+                    {
+                        rotation = new Quaternion(quat.x, quat.y, quat.z, quat.w);
+                    }
+                    else if (orientVal is Quaternion q)
+                    {
+                        rotation = q;
+                    }
                 }
 
                 // 从属性读取缩放
