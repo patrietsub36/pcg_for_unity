@@ -78,7 +78,60 @@ namespace PCGToolkit.Graph
                     return;
                 compatiblePorts.Add(port);
             });
+
+            // P3-3: 端口对齐 - 按端口位置排序，最近的排在前面
+            var startWorldPos = startPort.GetGlobalCenter();
+            compatiblePorts.Sort((a, b) =>
+            {
+                float distA = Vector2.Distance(a.GetGlobalCenter(), startWorldPos);
+                float distB = Vector2.Distance(b.GetGlobalCenter(), startWorldPos);
+                return distA.CompareTo(distB);
+            });
+
             return compatiblePorts;
+        }
+
+        // P3-3: 端口自动对齐（当两个节点靠近时）
+        public void SnapNodesForConnection(PCGNodeVisual nodeA, PCGNodeVisual nodeB)
+        {
+            if (nodeA == null || nodeB == null) return;
+
+            // 获取两个节点最近的端口对
+            Port nearestOutPort = null;
+            Port nearestInPort = null;
+            float minDist = float.MaxValue;
+
+            foreach (var portA in nodeA.outputPorts.Values)
+            {
+                foreach (var portB in nodeB.inputPorts.Values)
+                {
+                    if (portA.portType != portB.portType &&
+                        portA.portType != typeof(object) &&
+                        portB.portType != typeof(object))
+                        continue;
+
+                    float dist = Vector2.Distance(portA.GetGlobalCenter(), portB.GetGlobalCenter());
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        nearestOutPort = portA;
+                        nearestInPort = portB;
+                    }
+                }
+            }
+
+            // 如果距离足够近，自动对齐
+            if (nearestOutPort != null && nearestInPort != null && minDist < 50f)
+            {
+                var outPos = nearestOutPort.GetGlobalCenter();
+                var inPos = nearestInPort.GetGlobalCenter();
+                var offset = outPos - inPos;
+
+                // 移动节点B使端口对齐
+                var newPos = nodeB.GetPosition();
+                newPos.position += offset;
+                nodeB.SetPosition(newPos);
+            }
         }
 
         public void Initialize(PCGGraphEditorWindow editorWindow)
@@ -159,11 +212,98 @@ namespace PCGToolkit.Graph
             if (selection.OfType<PCGNodeVisual>().Any())
             {
                 evt.menu.AppendSeparator();
-                evt.menu.AppendAction("Group Selection", _ => GroupSelection());
+                evt.menu.AppendAction("Cut", _ => CutSelection());
+                evt.menu.AppendAction("Copy", _ => CopySelection());
+                evt.menu.AppendAction("Paste", _ => PasteSelection(localMousePosition));
+                evt.menu.AppendSeparator();
                 evt.menu.AppendAction("Duplicate", _ => DuplicateSelection());
+                evt.menu.AppendAction("Group Selection", _ => GroupSelection());
                 evt.menu.AppendAction("Disconnect All", _ => DisconnectSelection());
                 evt.menu.AppendAction("Delete", _ => DeleteSelection());
             }
+        }
+
+        // P2-5: Cut/Copy/Paste 实现
+        private void CutSelection()
+        {
+            CopySelection();
+            DeleteSelection();
+        }
+
+        private void CopySelection()
+        {
+            var selectedNodes = selection.OfType<PCGNodeVisual>().ToList();
+            if (selectedNodes.Count == 0) return;
+
+            var data = SerializeSelection(selectedNodes);
+            GUIUtility.systemCopyBuffer = data;
+        }
+
+        private void PasteSelection(Vector2 position)
+        {
+            var data = GUIUtility.systemCopyBuffer;
+            if (string.IsNullOrEmpty(data)) return;
+
+            UnserializeAndPaste("Paste", data);
+        }
+
+        private string SerializeSelection(List<PCGNodeVisual> nodes)
+        {
+            var nodeDataList = new List<PCGNodeData>();
+            var edgeDataList = new List<PCGEdgeData>();
+
+            foreach (var nodeVisual in nodes)
+            {
+                var nodeData = new PCGNodeData
+                {
+                    NodeId = nodeVisual.NodeId,
+                    NodeType = nodeVisual.PCGNode.Name,
+                    Position = nodeVisual.GetPosition().position
+                };
+
+                var defaults = nodeVisual.GetPortDefaultValues();
+                if (defaults != null)
+                {
+                    nodeData.Parameters = new List<PCGSerializedParameter>();
+                    foreach (var kvp in defaults)
+                    {
+                        nodeData.Parameters.Add(new PCGSerializedParameter
+                        {
+                            Key = kvp.Key,
+                            ValueType = kvp.Value?.GetType().Name ?? "null",
+                            ValueJson = PCGParamHelper.SerializeParamValue(kvp.Value)
+                        });
+                    }
+                }
+
+                nodeDataList.Add(nodeData);
+            }
+
+            // 序列化选中节点之间的连接
+            foreach (var edge in edges)
+            {
+                var outputNode = edge.output.node as PCGNodeVisual;
+                var inputNode = edge.input.node as PCGNodeVisual;
+                if (outputNode != null && inputNode != null &&
+                    nodes.Contains(outputNode) && nodes.Contains(inputNode))
+                {
+                    edgeDataList.Add(new PCGEdgeData
+                    {
+                        OutputNodeId = outputNode.NodeId,
+                        OutputPort = edge.output.portName,
+                        InputNodeId = inputNode.NodeId,
+                        InputPort = edge.input.portName
+                    });
+                }
+            }
+
+            var tempData = new PCGGraphData
+            {
+                Nodes = nodeDataList,
+                Edges = edgeDataList
+            };
+
+            return JsonUtility.ToJson(tempData);
         }
         
         // ---- 迭代四：节点分组与注释 ----
@@ -231,7 +371,12 @@ namespace PCGToolkit.Graph
                 {
                     if (!visual.IsPortConnected(kvp.Key))
                     {
-                        nodeData.Parameters.Add(SerializeParamValue(kvp.Key, kvp.Value));
+                        nodeData.Parameters.Add(new PCGSerializedParameter
+                        {
+                            Key = kvp.Key,
+                            ValueType = kvp.Value?.GetType().Name ?? "null",
+                            ValueJson = PCGParamHelper.SerializeParamValue(kvp.Value)
+                        });
                     }
                 }
                 

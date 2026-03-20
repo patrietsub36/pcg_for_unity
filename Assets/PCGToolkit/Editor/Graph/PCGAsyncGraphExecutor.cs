@@ -165,7 +165,7 @@ namespace PCGToolkit.Graph
             _currentPhase = NodeExecutionPhase.Highlight;
 
             // 拓扑排序  
-            _sortedNodes = TopologicalSort(graphData);
+            _sortedNodes = PCGGraphHelper.TopologicalSort(graphData);
             if (_sortedNodes == null || _sortedNodes.Count == 0)
             {
                 Debug.LogError("[PCGAsyncExecutor] No nodes to execute or cycle detected.");
@@ -359,60 +359,6 @@ namespace PCGToolkit.Graph
             }
 
             return result;
-        }
-
-        /// <summary>  
-        /// 拓扑排序（Kahn 算法）  
-        /// </summary>  
-        private List<PCGNodeData> TopologicalSort(PCGGraphData graphData)
-        {
-            var nodeMap = new Dictionary<string, PCGNodeData>();
-            var inDegree = new Dictionary<string, int>();
-            var adjacency = new Dictionary<string, List<string>>();
-
-            foreach (var node in graphData.Nodes)
-            {
-                nodeMap[node.NodeId] = node;
-                inDegree[node.NodeId] = 0;
-                adjacency[node.NodeId] = new List<string>();
-            }
-
-            foreach (var edge in graphData.Edges)
-            {
-                if (adjacency.ContainsKey(edge.OutputNodeId) && inDegree.ContainsKey(edge.InputNodeId))
-                {
-                    adjacency[edge.OutputNodeId].Add(edge.InputNodeId);
-                    inDegree[edge.InputNodeId]++;
-                }
-            }
-
-            var queue = new Queue<string>();
-            foreach (var kvp in inDegree)
-            {
-                if (kvp.Value == 0)
-                    queue.Enqueue(kvp.Key);
-            }
-
-            var sorted = new List<PCGNodeData>();
-            while (queue.Count > 0)
-            {
-                var nodeId = queue.Dequeue();
-                sorted.Add(nodeMap[nodeId]);
-                foreach (var neighbor in adjacency[nodeId])
-                {
-                    inDegree[neighbor]--;
-                    if (inDegree[neighbor] == 0)
-                        queue.Enqueue(neighbor);
-                }
-            }
-
-            if (sorted.Count != graphData.Nodes.Count)
-            {
-                Debug.LogError($"[PCGAsyncExecutor] Cycle detected! Sorted {sorted.Count}/{graphData.Nodes.Count}");
-                return null;
-            }
-
-            return sorted;
         }
     }
 }
