@@ -1,176 +1,313 @@
-以下是按阶段划分的完整迭代任务，共 7 个 Phase，每个 Phase 可独立交给 AI Agent 执行。
+# PCG for Unity 第3轮迭代指导方针（进阶版）
+
+基于对代码库的深度审查，以下是按优先级严格排序的迭代任务大纲。每个任务标注了**影响面**、**依赖关系**和**具体实现要点**。
 
 ---
 
-## Phase 1 — 核心基础设施（3 项）
+## 架构级发现（影响任务排序）
 
-**前置依赖：无**
-**交付物：`GeometryBridge.cs` + `ExpressionParser.cs` + 3 个节点**
+在深入代码后，我修正了上一轮的几个判断：
 
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 1 | 新增基础设施 | `GeometryBridge`：`PCGGeometry ↔ DMesh3` 双向转换 | `Editor/Core/GeometryBridge.cs` |
-| 2 | 修复 | `BooleanNode` Subtract/Intersect 真实实现（依赖 GeometryBridge） | `Editor/Nodes/Geometry/BooleanNode.cs` |
-| 3 | 新增基础设施 + 节点 | `ExpressionParser` + `AttribWrangleNode` | `Editor/Core/ExpressionParser.cs` + `Editor/Nodes/Attribute/AttribWrangleNode.cs` |
-| 4 | 新增节点 | `ForEachNode`（对每个 Group/Piece 执行子图） | `Editor/Nodes/Utility/ForEachNode.cs` | [5-cite-0](#5-cite-0) [5-cite-1](#5-cite-1) [5-cite-2](#5-cite-2) 
+1. `BooleanNode` **已经使用 geometry3Sharp 的 `MeshBoolean` 做真 3D CSG**，不是 2D Clipper。但它不保留属性/UV。 [1-cite-0](#1-cite-0)
 
-**关键说明：**
-- `geometry3Sharp` 已在 `ThirdParty/geometry3Sharp/`，Boolean 修复直接使用
+2. `FacetNode` 的 `unique` 模式已经实现了"面独立化"（每个面使用独立顶点），部分解决了 Face Separate 需求。 [1-cite-1](#1-cite-1)
 
-- `ForEachNode` 参考 `SubGraphNode.cs` 的子图加载/执行模式，循环调用 `PCGGraphExecutor`，每次迭代通过 `ctx.GlobalVariables` 注入 `iteration`/`groupname`
-- 节点注册是自动反射扫描，新增 `PCGNodeBase` 子类即自动注册 [5-cite-3](#5-cite-3)
+3. `PCGGeometryToMesh.Convert()` 只输出**单个 submesh**，无法按 PrimGroup 分配不同材质。 [1-cite-2](#1-cite-2)
+
+4. `CopyToPointsNode` 读取 `orient`/`pscale`，但**不传递目标点的自定义属性**到副本，也不注入 `@copynum`。 [1-cite-3](#1-cite-3)
+
+5. `ArrayNode` 同样**不注入 `@copynum`**，无法在子图中区分第几个副本。 [1-cite-4](#1-cite-4)
 
 ---
 
-## Phase 2 — Geometry 系列补全（7 项）
+## Phase 3A — 表达式系统补全（解锁条件逻辑）
 
-**前置依赖：Phase 1（GeometryBridge）**
-**交付物：6 个新节点 + 1 个修复**
+### T1: ExpressionParser 增加比较与逻辑运算（P0 最高优先级）
 
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 5 | 新增 | `MirrorNode` — 沿平面镜像 + 翻转面绕序 | `Editor/Nodes/Geometry/MirrorNode.cs` |
-| 6 | 新增 | `InsetNode` — 面内缩，生成环形侧面带 | `Editor/Nodes/Geometry/InsetNode.cs` |
-| 7 | 新增 | `TriangulateNode` — N 边形转三角形 | `Editor/Nodes/Geometry/TriangulateNode.cs` |
-| 8 | 新增 | `PeakNode` — 沿法线均匀偏移点 | `Editor/Nodes/Geometry/PeakNode.cs` |
-| 9 | 新增 | `FacetNode` — Unique/Consolidate/ComputeNormals 三模式 | `Editor/Nodes/Geometry/FacetNode.cs` |
-| 10 | 新增 | `PolyExpand2DNode` — 2D 多边形偏移/内缩 | `Editor/Nodes/Geometry/PolyExpand2DNode.cs` |
-| 11 | 修复 | `SubdivideNode` Catmull-Clark 真实实现 | `Editor/Nodes/Geometry/SubdivideNode.cs` | [5-cite-4](#5-cite-4) 
+**文件**: `Assets/PCGToolkit/Editor/Core/ExpressionParser.cs`
 
-**关键说明：**
-- `PolyExpand2DNode` 使用已有的 `ThirdParty/Clipper2/` 库
-- 所有新节点遵循 `ExtrudeNode` 的代码模式：继承 `PCGNodeBase`，实现 `Inputs`/`Outputs`/`Execute` [5-cite-5](#5-cite-5)
+当前 `ParseExpression()` 直接调用 `ParseAddSub()`，解析链中完全没有比较和逻辑层。 [1-cite-5](#1-cite-5)
 
----
+需要在递归下降解析器中插入新的优先级层：
 
-## Phase 3 — Topology 系列修复 + 补全（4 项）
-
-**前置依赖：Phase 1（GeometryBridge）**
-**交付物：2 个修复 + 2 个新节点**
-
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 12 | 修复 | `PolyBevelNode` — 支持按 Group 选择内部边倒角 | `Editor/Nodes/Topology/PolyBevelNode.cs` |
-| 13 | 修复 | `ConvexDecompositionNode` — 集成 MIConvexHull 真实凸分解 | `Editor/Nodes/Topology/ConvexDecompositionNode.cs` |
-| 14 | 新增 | `PolySplitNode` — 用平面切割面 | `Editor/Nodes/Topology/PolySplitNode.cs` |
-| 15 | 新增 | `EdgeDivideNode` — 在边上等距插入新点 | `Editor/Nodes/Topology/EdgeDivideNode.cs` | [5-cite-6](#5-cite-6) [5-cite-7](#5-cite-7) 
-
-**关键说明：**
-- `MIConvexHull` 已在 `ThirdParty/MIConvexHull/`
-- `PolyBevelNode` 修复重点：第 75-83 行的边选择逻辑，从 `Count == 1`（仅边界边）改为支持 group 参数指定的内部边
-
----
-
-## Phase 4 — Distribute + Curve 补全（3 项）
-
-**前置依赖：无（可与 Phase 2/3 并行）**
-**交付物：3 个新节点**
-
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 16 | 新增 | `ArrayNode` — 线性阵列 + 径向阵列复制 | `Editor/Nodes/Distribute/ArrayNode.cs` |
-| 17 | 新增 | `PointsFromVolumeNode` — 包围盒内体素网格生成点 | `Editor/Nodes/Distribute/PointsFromVolumeNode.cs` |
-| 18 | 新增 | `PolyWireNode` — 曲线转管状网格（固定圆形截面） | `Editor/Nodes/Curve/PolyWireNode.cs` |
-
-**关键说明：**
-- `ArrayNode` 两种模式：linear（累加 offset）、radial（绕轴旋转 + 半径偏移）
-- `PolyWireNode` 比已有的 `SweepNode` 更轻量，固定圆形截面，沿线段生成管状网格
-
----
-
-## Phase 5 — Utility 系列补全（6 项）
-
-**前置依赖：无（可与 Phase 2/3/4 并行）**
-**交付物：6 个新节点**
-
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 19 | 新增 | `CompareNode` — 比较两值输出 Bool（驱动 Switch） | `Editor/Nodes/Utility/CompareNode.cs` |
-| 20 | 新增 | `RandomNode` — 随机 Float/Int/Vector3，支持 seed | `Editor/Nodes/Utility/RandomNode.cs` |
-| 21 | 新增 | `FitRangeNode` — 值域重映射 | `Editor/Nodes/Utility/FitRangeNode.cs` |
-| 22 | 新增 | `RampNode` — 曲线 Ramp 映射 | `Editor/Nodes/Utility/RampNode.cs` |
-| 23 | 新增 | `GroupCombineNode` — Group 集合运算 | `Editor/Nodes/Utility/GroupCombineNode.cs` |
-| 24 | 新增 | `SplitNode` — 按 Group 拆分为 matched/unmatched 两路 | `Editor/Nodes/Utility/SplitNode.cs` | [5-cite-8](#5-cite-8) 
-
-**关键说明：**
-- 当前 `Execute` 返回 `Dictionary<string, PCGGeometry>`，非 Geometry 类型的输出（Bool/Float）通过 `PCGGeometry.DetailAttribs` 存储 [5-cite-9](#5-cite-9)
-- `SplitNode` 是唯一需要双 Geometry 输出的节点（`matched` + `unmatched`）
-
----
-
-## Phase 6 — Procedural + UV 修复（3 项）
-
-**前置依赖：Phase 1（GeometryBridge 用于 UV）**
-**交付物：3 个修复**
-
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 25 | 修复 | `WFCNode` — 支持自定义邻接规则 JSON 输入 | `Editor/Nodes/Procedural/WFCNode.cs` |
-| 26 | 修复 | `UVUnwrapNode` — 集成 xatlas 真实展开 | `Editor/Nodes/UV/UVUnwrapNode.cs` |
-| 27 | 修复 | `UVLayoutNode` — 实现真正的 UV 岛排布 | `Editor/Nodes/UV/UVLayoutNode.cs` | [5-cite-10](#5-cite-10) 
-
-**关键说明：**
-- `xatlas` 已在 `ThirdParty/xatlas/`
-- WFC 修复重点：第 214-223 行的硬编码邻接规则替换为从 `adjacencyRules` 参数查表
-
----
-
-## Phase 7 — Create + Deform + Attribute 补全（7 项）
-
-**前置依赖：无（可与 Phase 4/5/6 并行）**
-**交付物：7 个新节点**
-
-| # | 类型 | 任务 | 文件路径 |
-|---|------|------|---------|
-| 28 | 新增 | `PlatonicSolidsNode` — 正四/八/十二/二十面体 | `Editor/Nodes/Create/PlatonicSolidsNode.cs` |
-| 29 | 新增 | `HeightfieldNode` — 带 height 属性的噪声网格 | `Editor/Nodes/Create/HeightfieldNode.cs` |
-| 30 | 新增 | `FontNode` — 文本转 2D/3D 几何体 | `Editor/Nodes/Create/FontNode.cs` |
-| 31 | 新增 | `NoiseNode` — 通用噪声变形（Perlin/Simplex/Worley/Curl） | `Editor/Nodes/Deform/NoiseNode.cs` |
-| 32 | 新增 | `CreepNode` — 沿目标表面爬行变形 | `Editor/Nodes/Deform/CreepNode.cs` |
-| 33 | 新增 | `AttributeTransferNode` — 基于空间距离传递属性 | `Editor/Nodes/Attribute/AttributeTransferNode.cs` |
-| 34 | 新增 | `AttributeRandomizeNode` — 为属性赋随机值 | `Editor/Nodes/Attribute/AttributeRandomizeNode.cs` |
-
----
-
-## 阶段依赖关系
-
-```mermaid
-graph LR
-    P1["Phase 1: 核心基础设施 (4)"]
-    P2["Phase 2: Geometry (7)"]
-    P3["Phase 3: Topology (4)"]
-    P4["Phase 4: Distribute+Curve (3)"]
-    P5["Phase 5: Utility (6)"]
-    P6["Phase 6: Procedural+UV (3)"]
-    P7["Phase 7: Create+Deform+Attr (7)"]
-
-    P1 --> P2
-    P1 --> P3
-    P1 --> P6
-    P4 -.- P1
-    P5 -.- P1
-    P7 -.- P1
+```
+ParseExpression → ParseTernary → ParseLogicOr → ParseLogicAnd → ParseComparison → ParseAddSub → ...
 ```
 
-- **实线箭头** = 硬依赖（必须先完成）
-- **虚线** = 无依赖（可并行）
+具体增加：
+- **比较运算符**: `<`, `>`, `<=`, `>=`, `==`, `!=` → 返回 `0f` 或 `1f`
+- **逻辑运算符**: `&&`, `||`, `!` → 短路求值
+- **三元表达式**: `condition ? trueExpr : falseExpr`
 
-**Phase 2/3/6** 依赖 Phase 1 的 `GeometryBridge.cs`。
-**Phase 4/5/7** 无硬依赖，可与 Phase 1 并行启动。
+### T2: ExpressionParser 增加 if/else 语句（P0）
+
+**文件**: `Assets/PCGToolkit/Editor/Core/ExpressionParser.cs`
+
+当前 `ExecuteStatement()` 只处理赋值语句（`@X = expr`），用简单的 `IndexOf('=')` 分割。 [1-cite-6](#1-cite-6)
+
+需要改造 `Execute()` 方法：
+- 不能再用 `Split(';')` 做简单分割（因为 `{}` 块内也有分号）
+- 实现 token-level 的语句解析
+- 支持 `if (expr) { stmts } else { stmts }`
+- 支持 `for (int i = 0; i < N; i++) { stmts }`（可选，优先级低于 if/else）
+
+### T3: ExpressionParser 增加局部变量声明（P1）
+
+当前只支持 `@` 前缀的属性变量。建筑生成中经常需要临时变量：
+
+```c
+float h = @P.y;
+int floor = floor(h / 3.0);
+@type = floor > 5 ? 1 : 0;
+```
+
+需要在 `EvalContext.Variables` 中支持无 `@` 前缀的局部变量，并在 `ParsePrimary()` 中识别 `float`/`int` 类型声明。
 
 ---
 
-## 汇总
+## Phase 3B — Group 表达式与条件选择
 
-| Phase | 内容 | 修复 | 新增 | 合计 |
-|-------|------|------|------|------|
-| 1 | 核心基础设施 | 1 | 3 | **4** |
-| 2 | Geometry | 1 | 6 | **7** |
-| 3 | Topology | 2 | 2 | **4** |
-| 4 | Distribute + Curve | 0 | 3 | **3** |
-| 5 | Utility | 0 | 6 | **6** |
-| 6 | Procedural + UV | 3 | 0 | **3** |
-| 7 | Create + Deform + Attribute | 0 | 7 | **7** |
-| **总计** | | **7** | **27** | **34** |
+### T4: GroupExpression 节点（P1）
 
-所有文件路径前缀为 `Assets/PCGToolkit/`。所有新节点继承 `PCGNodeBase`，遵循 `ExtrudeNode.cs` 的代码模式。 [5-cite-11](#5-cite-11) [5-cite-12](#5-cite-12)
+**新文件**: `Assets/PCGToolkit/Editor/Nodes/Create/GroupExpressionNode.cs`
+
+允许用表达式创建分组：
+```
+@P.y > 5 && @P.y < 8   →  "middle_floors" 组
+@primnum % 2 == 0       →  "even_faces" 组
+```
+
+实现要点：
+- 输入: geometry + expression(string) + groupName(string) + class(point/primitive)
+- 对每个点/面执行表达式，结果 > 0 则加入组
+- 依赖 T1（比较运算符）
+
+### T5: Switch 节点支持表达式索引（P1）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Utility/SwitchNode.cs`
+
+当前 `index` 参数是静态 int，只能手动设置 0-3。 [1-cite-7](#1-cite-7)
+
+增强：
+- 新增 `expression` 参数（string），当非空时用 ExpressionParser 求值作为 index
+- 可以从 `ctx.GlobalVariables` 读取 `iteration`、`groupname` 等 ForEach 注入的变量
+- 这样 ForEach + Switch 组合就能实现"不同楼层用不同子图"
+
+---
+
+## Phase 3C — 复制与实例化增强
+
+### T6: CopyToPoints 注入 per-copy 属性（P2）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Distribute/CopyToPointsNode.cs`
+
+当前只读取 `orient` 和 `pscale`，不传递目标点的其他属性。 [1-cite-8](#1-cite-8)
+
+增强：
+- 为每个副本的所有点写入 `@copynum`（int，第几个副本）
+- 将目标点上的**所有自定义属性**（如 `@variant`, `@height`, `@type`）复制到副本的 DetailAttribs 中
+- 新增 `transferAttributes` 参数（string，逗号分隔），指定要传递的属性名
+
+### T7: Array 注入 @copynum（P2）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Distribute/ArrayNode.cs`
+
+在 `AppendTransformed()` 中为每个副本的点写入 `@copynum` 属性： [1-cite-9](#1-cite-9)
+
+### T8: Instance 节点实际解析多几何体（P3）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Distribute/InstanceNode.cs`
+
+当前 `InstanceNode` 只是标记点为实例，不实际解析不同几何体。 [1-cite-10](#1-cite-10)
+
+增强为真正的多几何体实例化：
+- 增加多个几何体输入端口（`instance0`, `instance1`, ...）
+- 读取每个点的 `@instance` 属性值作为索引
+- 将对应几何体复制到该点位置
+
+---
+
+## Phase 3D — ForEach 增强
+
+### T9: ForEach Feedback 模式（P2）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Utility/ForEachNode.cs`
+
+当前 `IterateByCount` 把所有中间结果都 add 到 results 再 merge： [1-cite-11](#1-cite-11)
+
+增加 `feedback` 参数（bool）：
+- `feedback = false`（默认）：当前行为，merge 所有中间结果
+- `feedback = true`：只输出最终迭代结果
+
+```csharp
+if (feedback)
+    return new List<PCGGeometry> { current }; // 只返回最终结果
+else
+    return results; // 返回所有中间结果的 merge
+```
+
+### T10: ForEach 注入更多上下文变量（P2）
+
+当前只注入 `iteration` 和 `groupname`： [1-cite-12](#1-cite-12)
+
+增加：
+- `numiterations`（总迭代次数）
+- `value`（当前 piece 的某个属性值，可配置）
+
+---
+
+## Phase 3E — 多材质与输出管线
+
+### T11: PCGGeometryToMesh 多 Submesh 支持（P2）
+
+**文件**: `Assets/PCGToolkit/Editor/Core/PCGGeometryToMesh.cs`
+
+当前所有面输出到单个 submesh： [1-cite-2](#1-cite-2)
+
+增强：
+- 检查 `PrimAttribs` 中是否有 `@material` 或 `@materialId` 属性
+- 如果有，按属性值分组，每组生成一个 submesh
+- 如果没有，按 `PrimGroups` 分组（每个 group 一个 submesh）
+- 返回 `Mesh` + `Material[]` 映射信息
+
+### T12: SavePrefab 多材质支持（P2）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Output/SavePrefabNode.cs`
+
+当前只分配单个 Default-Diffuse 材质： [1-cite-13](#1-cite-13)
+
+增强：
+- 从 `PrimAttribs` 的 `@material` 属性读取材质路径
+- 按 submesh 分配不同材质到 `MeshRenderer.sharedMaterials`
+
+### T13: MaterialAssign 节点（P3）
+
+**新文件**: `Assets/PCGToolkit/Editor/Nodes/Geometry/MaterialAssignNode.cs`
+
+- 输入: geometry + group(string) + materialPath(string)
+- 为指定 PrimGroup 的所有面设置 `@material` 属性
+- 配合 T11/T12 实现完整的多材质管线
+
+---
+
+## Phase 3F — 拓扑工具补全
+
+### T14: Connectivity 节点（P3）
+
+**新文件**: `Assets/PCGToolkit/Editor/Nodes/Geometry/ConnectivityNode.cs`
+
+- 使用 Union-Find（ForEachNode 中已有实现可复用）为每个连通分量写入 `@class` 属性 [1-cite-14](#1-cite-14)
+- 配合 ForEach byPiece 使用
+
+### T15: Boolean 属性保留（P3）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Geometry/BooleanNode.cs`
+
+当前 Boolean 结果丢失所有属性（UV、法线、自定义属性）： [1-cite-15](#1-cite-15)
+
+应改用 `GeometryBridge.ToDMesh3()` / `FromDMesh3()` 做转换（它们保留法线和 UV）： [1-cite-16](#1-cite-16)
+
+### T16: Extrude Individual 模式（P3）
+
+**文件**: `Assets/PCGToolkit/Editor/Nodes/Geometry/ExtrudeNode.cs`
+
+当前 Extrude 对共享顶点的面会产生拉扯。增加 `individual` 参数： [1-cite-17](#1-cite-17)
+
+- `individual = true` 时，先对选中面做 Facet Unique（面独立化），再逐面挤出
+- 这是建筑立面生成的核心操作（选中一面墙 → Inset → Extrude Individual → 生成窗框凹槽）
+
+---
+
+## Phase 3G — 高级程序化系统（中期目标）
+
+### T17: Shape Grammar 节点（P4）
+
+**新文件**: `Assets/PCGToolkit/Editor/Nodes/Procedural/ShapeGrammarNode.cs`
+
+这是建筑生成的终极武器。设计思路：
+
+```
+输入: 一个初始面（如建筑立面）+ 规则集（JSON/DSL）
+规则示例:
+  Facade → split(y, 3) { Floor* | Roof }
+  Floor  → split(x, 2) { Wall | Window | Wall }
+  Window → inset(0.1) { Frame | Glass }
+```
+
+实现分阶段：
+1. **Phase 1**: 支持 `split`（沿轴等分/按比例分割面）和 `repeat`（重复分割）
+2. **Phase 2**: 支持 `inset`、`extrude` 作为终端操作
+3. **Phase 3**: 支持条件规则（`if @floor > 3 then ...`）
+
+### T18: 建筑 SubGraph 模板库（P4）
+
+**新目录**: `Assets/PCGToolkit/Templates/Building/`
+
+在节点能力补全后，创建预制 SubGraph：
+- `WindowFrame.asset` — Inset + Extrude + Bevel
+- `BuildingFloor.asset` — Grid 分割 + ForEach + 随机窗户变体
+- `SimpleBuilding.asset` — Box → Array(楼层) → ForEach(立面处理)
+
+---
+
+## 优先级总览与依赖图
+
+```mermaid
+graph TD
+    subgraph "Phase 3A: 表达式系统 [最高优先级]"
+        T1["T1: 比较/逻辑/三元运算"]
+        T2["T2: if/else 语句"]
+        T3["T3: 局部变量声明"]
+    end
+    subgraph "Phase 3B: 条件选择"
+        T4["T4: GroupExpression 节点"]
+        T5["T5: Switch 表达式索引"]
+    end
+    subgraph "Phase 3C: 复制增强"
+        T6["T6: CopyToPoints per-copy 属性"]
+        T7["T7: Array @copynum"]
+        T8["T8: Instance 多几何体"]
+    end
+    subgraph "Phase 3D: ForEach 增强"
+        T9["T9: ForEach Feedback"]
+        T10["T10: ForEach 上下文变量"]
+    end
+    subgraph "Phase 3E: 多材质管线"
+        T11["T11: 多 Submesh"]
+        T12["T12: SavePrefab 多材质"]
+        T13["T13: MaterialAssign 节点"]
+    end
+    subgraph "Phase 3F: 拓扑补全"
+        T14["T14: Connectivity"]
+        T15["T15: Boolean 属性保留"]
+        T16["T16: Extrude Individual"]
+    end
+    subgraph "Phase 3G: 高级系统"
+        T17["T17: Shape Grammar"]
+        T18["T18: 建筑模板库"]
+    end
+
+    T1 --> T2
+    T1 --> T4
+    T1 --> T5
+    T2 --> T3
+    T4 --> T17
+    T6 --> T8
+    T11 --> T12
+    T13 --> T12
+    T9 --> T17
+    T16 --> T17
+    T17 --> T18
+```
+
+## 建议迭代批次
+
+| 批次 | 任务 | 完成后解锁的能力 |
+|------|------|-----------------|
+| **Batch 1** | T1, T7, T9 | Wrangle 条件逻辑 + 副本编号 + ForEach 累积 |
+| **Batch 2** | T2, T4, T5, T6 | if/else + 表达式分组 + 动态 Switch + per-copy 变体 |
+| **Batch 3** | T11, T12, T13, T16 | 多材质输出 + Extrude Individual |
+| **Batch 4** | T3, T8, T10, T14, T15 | 局部变量 + 多几何体实例 + 拓扑工具 |
+| **Batch 5** | T17, T18 | Shape Grammar + 建筑模板 |
+
+完成 Batch 1-2 后，系统就能做出**中等复杂度的程序化建筑**（多层、窗户变体、条件逻辑）。完成 Batch 3-4 后可以输出**生产级质量的多材质建筑 Prefab**。Batch 5 是对标 CityEngine/Houdini Labs Building Generator 的终极目标。
