@@ -34,8 +34,7 @@ namespace PCGToolkit.Nodes.Output
         {
             new PCGParamSchema("geometry", PCGPortDirection.Output, PCGPortType.Geometry,
                 "Geometry", "透传输入几何体"),
-            new PCGParamSchema("prefabPath", PCGPortDirection.Output, PCGPortType.String,
-                "Prefab Path", "保存的 Prefab 路径"),
+            // prefabPath 通过 ctx.GlobalVariables 传递，格式: {nodeId}.prefabPath
         };
 
         public override Dictionary<string, PCGGeometry> Execute(
@@ -147,10 +146,7 @@ namespace PCGToolkit.Nodes.Output
             // 将 prefabPath 通过 GlobalVariables 传递
             ctx.GlobalVariables[$"{ctx.CurrentNodeId}.prefabPath"] = savePath;
 
-            return new Dictionary<string, PCGGeometry>
-            {
-                { "geometry", geo }
-            };
+            return SingleOutput("geometry", geo);
         }
     }
 }

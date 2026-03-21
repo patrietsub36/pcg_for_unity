@@ -92,11 +92,6 @@ namespace PCGToolkit.Nodes.Distribute
             }
 
             // 对每个目标点复制源几何体
-            foreach (var primIdx in target.Primitives)
-            {
-                // 跳过
-            }
-
             for (int pointIdx = 0; pointIdx < target.Points.Count; pointIdx++)
             {
                 Vector3 position = target.Points[pointIdx];
