@@ -30,6 +30,8 @@ namespace PCGToolkit.Nodes.Procedural
                 "Tile Size", "瓦片尺寸", 1.0f),
             new PCGParamSchema("maxAttempts", PCGPortDirection.Input, PCGPortType.Int,
                 "Max Attempts", "最大尝试次数", 10),
+            new PCGParamSchema("adjacencyRules", PCGPortDirection.Input, PCGPortType.String,
+                "Adjacency Rules", "自定义邻接规则 JSON（格式: {\"0\":[0,1],\"1\":[0,1,2],...}），留空则使用默认 |t-nt|<=1 规则", ""),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -50,18 +52,17 @@ namespace PCGToolkit.Nodes.Procedural
             int seed = GetParamInt(parameters, "seed", 0);
             float tileSize = GetParamFloat(parameters, "tileSize", 1.0f);
             int maxAttempts = GetParamInt(parameters, "maxAttempts", 10);
+            string adjacencyJson = GetParamString(parameters, "adjacencyRules", "");
 
             var rng = new System.Random(seed);
 
-            // 简化的 WFC 实现
-            // 1. 定义瓦片（每个瓦片有颜色/类型）
             var tiles = new List<int>();
             for (int i = 0; i < tileCount; i++) tiles.Add(i);
 
-            // 2. 定义邻接规则（简化：相邻瓦片类型差 <= 1）
-            // 完整实现需要从输入数据或配置读取
+            // 解析邻接规则
+            var adjacency = ParseAdjacencyRules(adjacencyJson, tileCount);
 
-            // 3. 初始化波函数（每个格子可以是任意瓦片）
+            // 初始化波函数（每个格子可以是任意瓦片）
             int totalCells = gridX * gridY * gridZ;
             var superposition = new List<HashSet<int>>();
             for (int i = 0; i < totalCells; i++)
@@ -83,7 +84,7 @@ namespace PCGToolkit.Nodes.Procedural
                     collapsed[i] = -1;
                 }
 
-                success = RunWFC(rng, superposition, collapsed, gridX, gridY, gridZ, tileCount);
+                success = RunWFC(rng, superposition, collapsed, gridX, gridY, gridZ, tileCount, adjacency);
             }
 
             // 5. 生成几何体
@@ -153,7 +154,7 @@ namespace PCGToolkit.Nodes.Procedural
             return SingleOutput("geometry", geo);
         }
 
-        private bool RunWFC(System.Random rng, List<HashSet<int>> superposition, int[] collapsed, int gx, int gy, int gz, int tileCount)
+        private bool RunWFC(System.Random rng, List<HashSet<int>> superposition, int[] collapsed, int gx, int gy, int gz, int tileCount, Dictionary<int, HashSet<int>> adjacency)
         {
             int totalCells = gx * gy * gz;
 
@@ -211,14 +212,17 @@ namespace PCGToolkit.Nodes.Procedural
                         int nIdx = nx + ny * gx + nz * gx * gy;
                         if (collapsed[nIdx] >= 0) continue;
 
-                        // 简化规则：相邻瓦片类型差 <= 1
+                        // 根据邻接规则过滤
                         var validNeighbors = new HashSet<int>();
                         foreach (int t in superposition[current])
                         {
-                            foreach (int nt in superposition[nIdx])
+                            if (adjacency.TryGetValue(t, out var allowed))
                             {
-                                if (Mathf.Abs(t - nt) <= 1)
-                                    validNeighbors.Add(nt);
+                                foreach (int nt in superposition[nIdx])
+                                {
+                                    if (allowed.Contains(nt))
+                                        validNeighbors.Add(nt);
+                                }
                             }
                         }
 
@@ -243,6 +247,82 @@ namespace PCGToolkit.Nodes.Procedural
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// 解析邻接规则 JSON。格式: {"0":[0,1],"1":[0,1,2],...}
+        /// 如果 JSON 为空或解析失败，回退到默认规则 |t-nt|<=1
+        /// </summary>
+        private Dictionary<int, HashSet<int>> ParseAdjacencyRules(string json, int tileCount)
+        {
+            var rules = new Dictionary<int, HashSet<int>>();
+
+            if (!string.IsNullOrEmpty(json))
+            {
+                try
+                {
+                    // 简易 JSON 解析: {"0":[0,1],"1":[0,1,2]}
+                    json = json.Trim();
+                    if (json.StartsWith("{") && json.EndsWith("}"))
+                    {
+                        json = json.Substring(1, json.Length - 2);
+                        // 按 "]," 分割各条规则
+                        var entries = new List<string>();
+                        int depth = 0;
+                        int start = 0;
+                        for (int i = 0; i < json.Length; i++)
+                        {
+                            if (json[i] == '[') depth++;
+                            else if (json[i] == ']') depth--;
+                            else if (json[i] == ',' && depth == 0)
+                            {
+                                entries.Add(json.Substring(start, i - start));
+                                start = i + 1;
+                            }
+                        }
+                        entries.Add(json.Substring(start));
+
+                        foreach (var entry in entries)
+                        {
+                            var colonIdx = entry.IndexOf(':');
+                            if (colonIdx < 0) continue;
+                            string keyStr = entry.Substring(0, colonIdx).Trim().Trim('"');
+                            string valStr = entry.Substring(colonIdx + 1).Trim();
+                            if (!int.TryParse(keyStr, out int key)) continue;
+
+                            valStr = valStr.Trim('[', ']');
+                            var set = new HashSet<int>();
+                            foreach (var numStr in valStr.Split(','))
+                            {
+                                if (int.TryParse(numStr.Trim(), out int v))
+                                    set.Add(v);
+                            }
+                            rules[key] = set;
+                        }
+                    }
+                }
+                catch
+                {
+                    rules.Clear();
+                }
+            }
+
+            // 回退：为没有规则的瓦片生成默认规则 |t-nt|<=1
+            for (int t = 0; t < tileCount; t++)
+            {
+                if (!rules.ContainsKey(t))
+                {
+                    var set = new HashSet<int>();
+                    for (int nt = 0; nt < tileCount; nt++)
+                    {
+                        if (Mathf.Abs(t - nt) <= 1)
+                            set.Add(nt);
+                    }
+                    rules[t] = set;
+                }
+            }
+
+            return rules;
         }
     }
 }

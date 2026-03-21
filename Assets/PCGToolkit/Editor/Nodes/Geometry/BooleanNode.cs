@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using PCGToolkit.Core;
 using UnityEngine;
+using g3;
 
 namespace PCGToolkit.Nodes.Geometry
 {
@@ -16,7 +17,7 @@ namespace PCGToolkit.Nodes.Geometry
 
     /// <summary>
     /// 布尔运算（对标 Houdini Boolean SOP）
-    /// 注意：完整实现需要 geometry3Sharp，这里提供基础框架
+    /// 使用 geometry3Sharp 的 MeshBoolean 实现真实 CSG 运算
     /// </summary>
     public class BooleanNode : PCGNodeBase
     {
@@ -33,6 +34,8 @@ namespace PCGToolkit.Nodes.Geometry
                 "Input B", "第二个几何体", null, required: true),
             new PCGParamSchema("operation", PCGPortDirection.Input, PCGPortType.String,
                 "Operation", "布尔运算类型（union/intersect/subtract）", "union"),
+            new PCGParamSchema("vertexSnapTol", PCGPortDirection.Input, PCGPortType.Float,
+                "Vertex Snap Tolerance", "顶点合并容差", 0.00001f),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -49,6 +52,7 @@ namespace PCGToolkit.Nodes.Geometry
             var geoA = GetInputGeometry(inputGeometries, "inputA");
             var geoB = GetInputGeometry(inputGeometries, "inputB");
             string operation = GetParamString(parameters, "operation", "union");
+            double snapTol = GetParamFloat(parameters, "vertexSnapTol", 0.00001f);
 
             if (geoA.Points.Count == 0)
             {
@@ -61,37 +65,147 @@ namespace PCGToolkit.Nodes.Geometry
                 return SingleOutput("geometry", operation == "subtract" ? geoA.Clone() : new PCGGeometry());
             }
 
-            // 完整的布尔运算需要 geometry3Sharp 的 DMesh3 和 MeshBoolean
-            // 这里提供简化的合并实现作为占位
-            ctx.LogWarning("Boolean: 完整布尔运算需要 geometry3Sharp 集成，当前返回简化结果");
+            var meshA = PCGGeometryToDMesh3(geoA);
+            var meshB = PCGGeometryToDMesh3(geoB);
 
-            if (operation == "union")
+            DMesh3 resultMesh = null;
+
+            try
             {
-                // 简化：直接合并两个几何体
-                var result = geoA.Clone();
-                int offset = result.Points.Count;
-                result.Points.AddRange(geoB.Points);
-                foreach (var prim in geoB.Primitives)
+                switch (operation)
                 {
-                    var newPrim = new int[prim.Length];
-                    for (int i = 0; i < prim.Length; i++)
-                        newPrim[i] = prim[i] + offset;
-                    result.Primitives.Add(newPrim);
+                    case "union":
+                        resultMesh = ComputeUnion(meshA, meshB, snapTol, ctx);
+                        break;
+                    case "subtract":
+                        resultMesh = ComputeSubtract(meshA, meshB, snapTol, ctx);
+                        break;
+                    case "intersect":
+                        resultMesh = ComputeIntersect(meshA, meshB, snapTol, ctx);
+                        break;
+                    default:
+                        ctx.LogWarning($"Boolean: 未知操作 '{operation}'，使用 union");
+                        resultMesh = ComputeUnion(meshA, meshB, snapTol, ctx);
+                        break;
                 }
-                return SingleOutput("geometry", result);
             }
-            else if (operation == "subtract")
+            catch (System.Exception e)
             {
-                // 简化：返回 A（未真正计算差集）
-                ctx.Log("Boolean: Subtract 操作需要完整 CSG 实现");
+                ctx.LogError($"Boolean: CSG 运算异常 — {e.Message}");
                 return SingleOutput("geometry", geoA.Clone());
             }
-            else // intersect
+
+            if (resultMesh == null)
             {
-                // 简化：返回空几何体
-                ctx.Log("Boolean: Intersect 操作需要完整 CSG 实现");
+                ctx.LogWarning("Boolean: CSG 运算返回空结果");
                 return SingleOutput("geometry", new PCGGeometry());
             }
+
+            var result = DMesh3ToPCGGeometry(resultMesh);
+            ctx.Log($"Boolean: {operation} 完成, {result.Points.Count} 点, {result.Primitives.Count} 面");
+            return SingleOutput("geometry", result);
+        }
+
+        private DMesh3 ComputeUnion(DMesh3 a, DMesh3 b, double snapTol, PCGContext ctx)
+        {
+            var boolean = new MeshBoolean
+            {
+                Target = a,
+                Tool = b,
+                VertexSnapTol = snapTol
+            };
+            boolean.Compute();
+            return boolean.Result;
+        }
+
+        private DMesh3 ComputeSubtract(DMesh3 a, DMesh3 b, double snapTol, PCGContext ctx)
+        {
+            var flippedB = new DMesh3(b);
+            flippedB.ReverseOrientation();
+
+            var boolean = new MeshBoolean
+            {
+                Target = a,
+                Tool = flippedB,
+                VertexSnapTol = snapTol
+            };
+            boolean.Compute();
+            return boolean.Result;
+        }
+
+        private DMesh3 ComputeIntersect(DMesh3 a, DMesh3 b, double snapTol, PCGContext ctx)
+        {
+            var flippedA = new DMesh3(a);
+            flippedA.ReverseOrientation();
+            var flippedB = new DMesh3(b);
+            flippedB.ReverseOrientation();
+
+            var boolean = new MeshBoolean
+            {
+                Target = flippedA,
+                Tool = flippedB,
+                VertexSnapTol = snapTol
+            };
+            boolean.Compute();
+
+            if (boolean.Result != null)
+                boolean.Result.ReverseOrientation();
+
+            return boolean.Result;
+        }
+
+        // ---- 内联转换方法：PCGGeometry <-> DMesh3 ----
+
+        private static DMesh3 PCGGeometryToDMesh3(PCGGeometry geo)
+        {
+            var mesh = new DMesh3(true, false, false, true);
+
+            for (int i = 0; i < geo.Points.Count; i++)
+            {
+                var p = geo.Points[i];
+                mesh.AppendVertex(new Vector3d(p.x, p.y, p.z));
+            }
+
+            for (int pi = 0; pi < geo.Primitives.Count; pi++)
+            {
+                var prim = geo.Primitives[pi];
+                if (prim.Length < 3) continue;
+
+                if (prim.Length == 3)
+                {
+                    mesh.AppendTriangle(prim[0], prim[1], prim[2]);
+                }
+                else
+                {
+                    for (int j = 1; j < prim.Length - 1; j++)
+                        mesh.AppendTriangle(prim[0], prim[j], prim[j + 1]);
+                }
+            }
+
+            return mesh;
+        }
+
+        private static PCGGeometry DMesh3ToPCGGeometry(DMesh3 mesh)
+        {
+            var geo = new PCGGeometry();
+            if (mesh == null || mesh.VertexCount == 0)
+                return geo;
+
+            var compactMesh = new DMesh3(mesh, true);
+
+            for (int vid = 0; vid < compactMesh.VertexCount; vid++)
+            {
+                var v = compactMesh.GetVertex(vid);
+                geo.Points.Add(new Vector3((float)v.x, (float)v.y, (float)v.z));
+            }
+
+            foreach (int tid in compactMesh.TriangleIndices())
+            {
+                var tri = compactMesh.GetTriangle(tid);
+                geo.Primitives.Add(new int[] { tri.a, tri.b, tri.c });
+            }
+
+            return geo;
         }
     }
 }

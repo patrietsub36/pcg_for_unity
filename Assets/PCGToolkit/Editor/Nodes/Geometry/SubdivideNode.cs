@@ -118,12 +118,183 @@ namespace PCGToolkit.Nodes.Geometry
 
         private PCGGeometry SubdivideCatmullClark(PCGGeometry geo)
         {
-            // Catmull-Clark 细分的简化实现
-            // 完整实现需要考虑折痕、边界等特殊情况
-            Debug.LogWarning("Subdivide: Catmull-Clark 细分使用简化实现");
+            int origVertCount = geo.Points.Count;
+            int origFaceCount = geo.Primitives.Count;
 
-            // 第一次迭代使用 linear，后续可改进
-            return SubdivideLinear(geo);
+            // ---- Step 1: 构建邻接信息 ----
+
+            // 边 key -> 相邻面索引列表
+            var edgeFaces = new Dictionary<(int, int), List<int>>();
+            // 顶点 -> 相邻面索引列表
+            var vertFaces = new Dictionary<int, List<int>>();
+            // 顶点 -> 相邻边 key 列表
+            var vertEdges = new Dictionary<int, List<(int, int)>>();
+
+            (int, int) EdgeKey(int a, int b) => a < b ? (a, b) : (b, a);
+
+            for (int fi = 0; fi < origFaceCount; fi++)
+            {
+                var prim = geo.Primitives[fi];
+                for (int i = 0; i < prim.Length; i++)
+                {
+                    int v = prim[i];
+                    if (!vertFaces.ContainsKey(v))
+                        vertFaces[v] = new List<int>();
+                    vertFaces[v].Add(fi);
+
+                    int next = prim[(i + 1) % prim.Length];
+                    var ek = EdgeKey(v, next);
+                    if (!edgeFaces.ContainsKey(ek))
+                        edgeFaces[ek] = new List<int>();
+                    edgeFaces[ek].Add(fi);
+
+                    if (!vertEdges.ContainsKey(v))
+                        vertEdges[v] = new List<(int, int)>();
+                    if (!vertEdges[v].Contains(ek))
+                        vertEdges[v].Add(ek);
+                }
+            }
+
+            // ---- Step 2: 计算面点 (Face Points) ----
+            // 每个面的所有顶点的平均值
+            var facePoints = new Vector3[origFaceCount];
+            for (int fi = 0; fi < origFaceCount; fi++)
+            {
+                var prim = geo.Primitives[fi];
+                Vector3 sum = Vector3.zero;
+                foreach (int v in prim)
+                    sum += geo.Points[v];
+                facePoints[fi] = sum / prim.Length;
+            }
+
+            // ---- Step 3: 计算边点 (Edge Points) ----
+            // 内部边: (V1 + V2 + F1 + F2) / 4
+            // 边界边: (V1 + V2) / 2
+            var edgePoints = new Dictionary<(int, int), Vector3>();
+            var boundaryEdges = new HashSet<(int, int)>();
+            foreach (var kvp in edgeFaces)
+            {
+                var ek = kvp.Key;
+                var faces = kvp.Value;
+                Vector3 v1 = geo.Points[ek.Item1];
+                Vector3 v2 = geo.Points[ek.Item2];
+
+                if (faces.Count == 1)
+                {
+                    // 边界边
+                    edgePoints[ek] = (v1 + v2) * 0.5f;
+                    boundaryEdges.Add(ek);
+                }
+                else
+                {
+                    // 内部边: (V1 + V2 + F1 + F2) / 4
+                    Vector3 f1 = facePoints[faces[0]];
+                    Vector3 f2 = faces.Count >= 2 ? facePoints[faces[1]] : f1;
+                    edgePoints[ek] = (v1 + v2 + f1 + f2) * 0.25f;
+                }
+            }
+
+            // ---- Step 4: 计算新的顶点位置 (Vertex Points) ----
+            // 内部顶点: (F + 2R + (n-3)P) / n
+            //   F = 相邻面点的平均值
+            //   R = 相邻边中点的平均值
+            //   P = 原始位置
+            //   n = 相邻面数（valence）
+            // 边界顶点: (R + P) / 2，R = 相邻边界边中点的平均值
+            var newVertPositions = new Vector3[origVertCount];
+            var isBoundaryVert = new bool[origVertCount];
+
+            for (int vi = 0; vi < origVertCount; vi++)
+            {
+                Vector3 P = geo.Points[vi];
+
+                if (!vertFaces.ContainsKey(vi) || !vertEdges.ContainsKey(vi))
+                {
+                    newVertPositions[vi] = P;
+                    continue;
+                }
+
+                // 检查是否为边界顶点
+                var adjBoundary = new List<(int, int)>();
+                foreach (var ek in vertEdges[vi])
+                {
+                    if (boundaryEdges.Contains(ek))
+                        adjBoundary.Add(ek);
+                }
+
+                if (adjBoundary.Count >= 2)
+                {
+                    // 边界顶点
+                    isBoundaryVert[vi] = true;
+                    Vector3 R = Vector3.zero;
+                    foreach (var ek in adjBoundary)
+                        R += (geo.Points[ek.Item1] + geo.Points[ek.Item2]) * 0.5f;
+                    R /= adjBoundary.Count;
+                    newVertPositions[vi] = (R + P) * 0.5f;
+                }
+                else
+                {
+                    // 内部顶点
+                    int n = vertFaces[vi].Count;
+                    Vector3 F = Vector3.zero;
+                    foreach (int fi in vertFaces[vi])
+                        F += facePoints[fi];
+                    F /= n;
+
+                    Vector3 R = Vector3.zero;
+                    foreach (var ek in vertEdges[vi])
+                        R += (geo.Points[ek.Item1] + geo.Points[ek.Item2]) * 0.5f;
+                    R /= vertEdges[vi].Count;
+
+                    newVertPositions[vi] = (F + 2f * R + (n - 3f) * P) / n;
+                }
+            }
+
+            // ---- Step 5: 组装结果 ----
+            var result = new PCGGeometry();
+
+            // 添加更新后的原始顶点 [0, origVertCount)
+            for (int vi = 0; vi < origVertCount; vi++)
+                result.Points.Add(newVertPositions[vi]);
+
+            // 添加面点 [origVertCount, origVertCount + origFaceCount)
+            int facePointBase = result.Points.Count;
+            for (int fi = 0; fi < origFaceCount; fi++)
+                result.Points.Add(facePoints[fi]);
+
+            // 添加边点
+            int edgePointBase = result.Points.Count;
+            var edgePointIndex = new Dictionary<(int, int), int>();
+            foreach (var kvp in edgePoints)
+            {
+                edgePointIndex[kvp.Key] = result.Points.Count;
+                result.Points.Add(kvp.Value);
+            }
+
+            // 为每个原始面生成子面
+            for (int fi = 0; fi < origFaceCount; fi++)
+            {
+                var prim = geo.Primitives[fi];
+                int fpIdx = facePointBase + fi;
+
+                for (int i = 0; i < prim.Length; i++)
+                {
+                    int v = prim[i];
+                    int vNext = prim[(i + 1) % prim.Length];
+                    int vPrev = prim[(i + prim.Length - 1) % prim.Length];
+
+                    var ekNext = EdgeKey(v, vNext);
+                    var ekPrev = EdgeKey(vPrev, v);
+
+                    int epNext = edgePointIndex[ekNext];
+                    int epPrev = edgePointIndex[ekPrev];
+
+                    // 子四边形: [原始顶点, 下一边的边点, 面点, 前一边的边点]
+                    result.Primitives.Add(new int[] { v, epNext, fpIdx, epPrev });
+                }
+            }
+
+            return result;
         }
     }
 }
