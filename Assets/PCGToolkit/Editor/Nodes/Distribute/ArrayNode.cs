@@ -64,7 +64,7 @@ namespace PCGToolkit.Nodes.Distribute
                 {
                     float angle = (count > 1) ? fullAngle * i / count : 0f;
                     Quaternion rot = Quaternion.AngleAxis(angle, axis);
-                    AppendTransformed(result, geo, Vector3.zero, rot, center);
+                    AppendTransformed(result, geo, Vector3.zero, rot, center, i);
                 }
             }
             else
@@ -73,7 +73,7 @@ namespace PCGToolkit.Nodes.Distribute
                 for (int i = 0; i < count; i++)
                 {
                     Vector3 translation = offset * i;
-                    AppendTransformed(result, geo, translation, Quaternion.identity, Vector3.zero);
+                    AppendTransformed(result, geo, translation, Quaternion.identity, Vector3.zero, i);
                 }
             }
 
@@ -81,7 +81,7 @@ namespace PCGToolkit.Nodes.Distribute
             return SingleOutput("geometry", result);
         }
 
-        private void AppendTransformed(PCGGeometry result, PCGGeometry src, Vector3 translation, Quaternion rotation, Vector3 rotCenter)
+        private void AppendTransformed(PCGGeometry result, PCGGeometry src, Vector3 translation, Quaternion rotation, Vector3 rotCenter, int copyIndex)
         {
             int pointOffset = result.Points.Count;
 
@@ -126,6 +126,17 @@ namespace PCGToolkit.Nodes.Distribute
                     destAttr.Values.AddRange(attr.Values);
                 }
             }
+
+            // 注入 @copynum 属性（每个副本的点都有相同的 copynum 值）
+            var copynumAttr = result.PointAttribs.GetAttribute("copynum");
+            if (copynumAttr == null)
+            {
+                copynumAttr = result.PointAttribs.CreateAttribute("copynum", typeof(float), 0f);
+                for (int j = 0; j < pointOffset; j++)
+                    copynumAttr.Values.Add(0f);
+            }
+            for (int i = 0; i < src.Points.Count; i++)
+                copynumAttr.Values.Add((float)copyIndex);
         }
     }
 }

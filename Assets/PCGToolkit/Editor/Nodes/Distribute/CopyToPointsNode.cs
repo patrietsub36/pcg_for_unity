@@ -26,6 +26,8 @@ namespace PCGToolkit.Nodes.Distribute
                 "Use Point Scale", "使用点的 pscale 属性控制缩放", true),
             new PCGParamSchema("pack", PCGPortDirection.Input, PCGPortType.Bool,
                 "Pack", "是否将副本打包为实例", false),
+            new PCGParamSchema("transferAttributes", PCGPortDirection.Input, PCGPortType.String,
+                "Transfer Attributes", "要传递的属性名（逗号分隔，如 variant,height）", ""),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -43,6 +45,19 @@ namespace PCGToolkit.Nodes.Distribute
             var target = GetInputGeometry(inputGeometries, "target");
             bool usePointOrient = GetParamBool(parameters, "usePointOrient", true);
             bool usePointScale = GetParamBool(parameters, "usePointScale", true);
+            string transferAttrs = GetParamString(parameters, "transferAttributes", "");
+
+            // 解析要传递的属性列表
+            var transferAttrList = new List<string>();
+            if (!string.IsNullOrEmpty(transferAttrs))
+            {
+                foreach (var attr in transferAttrs.Split(','))
+                {
+                    var trimmed = attr.Trim();
+                    if (!string.IsNullOrEmpty(trimmed))
+                        transferAttrList.Add(trimmed);
+                }
+            }
 
             var result = new PCGGeometry();
 
@@ -66,6 +81,15 @@ namespace PCGToolkit.Nodes.Distribute
                 orientAttr = target.PointAttribs.GetAttribute("orient");
             if (usePointScale)
                 scaleAttr = target.PointAttribs.GetAttribute("pscale");
+
+            // 获取要传递的属性
+            var transferAttrData = new List<(string name, PCGAttribute attr)>();
+            foreach (var attrName in transferAttrList)
+            {
+                var attr = target.PointAttribs.GetAttribute(attrName);
+                if (attr != null)
+                    transferAttrData.Add((attrName, attr));
+            }
 
             // 对每个目标点复制源几何体
             foreach (var primIdx in target.Primitives)
@@ -122,6 +146,32 @@ namespace PCGToolkit.Nodes.Distribute
                         newPrim[i] = srcPrim[i] + vertexOffset;
                     }
                     result.Primitives.Add(newPrim);
+                }
+
+                // 为这个副本的所有点写入 @copynum 属性
+                var copynumAttr = result.PointAttribs.GetAttribute("copynum");
+                if (copynumAttr == null)
+                {
+                    copynumAttr = result.PointAttribs.CreateAttribute("copynum", typeof(float), 0f);
+                    for (int j = 0; j < vertexOffset; j++)
+                        copynumAttr.Values.Add(0f);
+                }
+                for (int i = 0; i < source.Points.Count; i++)
+                    copynumAttr.Values.Add((float)pointIdx);
+
+                // 传递目标点的属性到副本（写入 DetailAttribs）
+                foreach (var (attrName, attr) in transferAttrData)
+                {
+                    if (pointIdx < attr.Values.Count)
+                    {
+                        var detailAttr = result.DetailAttribs.GetAttribute(attrName);
+                        if (detailAttr == null)
+                        {
+                            detailAttr = result.DetailAttribs.CreateAttribute(attrName, attr.Type, attr.DefaultValue);
+                        }
+                        // 为这个副本添加一个 detail 属性值
+                        detailAttr.Values.Add(attr.Values[pointIdx]);
+                    }
                 }
             }
 

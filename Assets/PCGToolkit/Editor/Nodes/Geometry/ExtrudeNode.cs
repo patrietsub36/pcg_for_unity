@@ -30,6 +30,8 @@ namespace PCGToolkit.Nodes.Geometry
                 "Output Front", "是否输出顶面", true),
             new PCGParamSchema("outputSide", PCGPortDirection.Input, PCGPortType.Bool,
                 "Output Side", "是否输出侧面", true),
+            new PCGParamSchema("individual", PCGPortDirection.Input, PCGPortType.Bool,
+                "Individual", "是否独立挤出每个面（避免共享顶点拉扯）", false),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -50,20 +52,12 @@ namespace PCGToolkit.Nodes.Geometry
             int divisions = Mathf.Max(1, GetParamInt(parameters, "divisions", 1));
             bool outputFront = GetParamBool(parameters, "outputFront", true);
             bool outputSide = GetParamBool(parameters, "outputSide", true);
+            bool individual = GetParamBool(parameters, "individual", false);
 
             if (geo.Primitives.Count == 0)
             {
                 ctx.LogWarning("Extrude: 输入几何体没有面");
                 return SingleOutput("geometry", geo);
-            }
-
-            var result = new PCGGeometry();
-
-            // 第一步：复制所有原始顶点到 result（保持 1:1 索引映射）
-            // 这样非挤出面的原始索引在 result 中仍然有效
-            for (int i = 0; i < geo.Points.Count; i++)
-            {
-                result.Points.Add(geo.Points[i]);
             }
 
             // 确定要挤出的面
@@ -78,7 +72,33 @@ namespace PCGToolkit.Nodes.Geometry
                     primsToExtrude.Add(i);
             }
 
-            // 第二步：添加未挤出的原始面（索引仍然有效，因为原始顶点已 1:1 复制到 result）
+            // individual 模式：先对面进行独立化处理
+            if (individual)
+            {
+                return ExecuteIndividual(geo, primsToExtrude, distance, inset, divisions, outputFront, outputSide, ctx);
+            }
+
+            // 正常模式
+            return ExecuteNormal(geo, primsToExtrude, distance, inset, divisions, outputFront, outputSide);
+        }
+
+        /// <summary>
+        /// 正常挤出模式（共享顶点）
+        /// </summary>
+        private Dictionary<string, PCGGeometry> ExecuteNormal(
+            PCGGeometry geo, HashSet<int> primsToExtrude,
+            float distance, float inset, int divisions,
+            bool outputFront, bool outputSide)
+        {
+            var result = new PCGGeometry();
+
+            // 第一步：复制所有原始顶点到 result（保持 1:1 索引映射）
+            for (int i = 0; i < geo.Points.Count; i++)
+            {
+                result.Points.Add(geo.Points[i]);
+            }
+
+            // 第二步：添加未挤出的原始面
             for (int i = 0; i < geo.Primitives.Count; i++)
             {
                 if (!primsToExtrude.Contains(i))
@@ -99,7 +119,6 @@ namespace PCGToolkit.Nodes.Geometry
                 foreach (int idx in prim) center += geo.Points[idx];
                 center /= prim.Length;
 
-                // 第一层使用原始顶点索引（已在 result.Points 中，索引 0 ~ geo.Points.Count-1）
                 int[] prevLayerVertices = (int[])prim.Clone();
 
                 for (int d = 1; d <= divisions; d++)
@@ -122,7 +141,6 @@ namespace PCGToolkit.Nodes.Geometry
                         layerVertices[i] = newIdx;
                     }
 
-                    // 创建侧面
                     if (outputSide)
                     {
                         for (int i = 0; i < prim.Length; i++)
@@ -139,10 +157,8 @@ namespace PCGToolkit.Nodes.Geometry
                     prevLayerVertices = layerVertices;
                 }
 
-                // 输出顶面
                 if (outputFront)
                 {
-                    // 使用最后一层的顶点，反转绕序使法线朝外
                     int[] frontPrim = new int[prim.Length];
                     for (int i = 0; i < prim.Length; i++)
                     {
@@ -152,6 +168,129 @@ namespace PCGToolkit.Nodes.Geometry
                 }
             }
 
+            return SingleOutput("geometry", result);
+        }
+
+        /// <summary>
+        /// 独立挤出模式（每个面独立化后挤出，避免共享顶点拉扯）
+        /// </summary>
+        private Dictionary<string, PCGGeometry> ExecuteIndividual(
+            PCGGeometry geo, HashSet<int> primsToExtrude,
+            float distance, float inset, int divisions,
+            bool outputFront, bool outputSide, PCGContext ctx)
+        {
+            var result = new PCGGeometry();
+
+            // 首先添加未挤出的面（保持原始顶点共享）
+            var usedOriginalPoints = new HashSet<int>();
+            foreach (int primIdx in primsToExtrude)
+            {
+                foreach (int vi in geo.Primitives[primIdx])
+                    usedOriginalPoints.Add(vi);
+            }
+
+            // 复制未被挤出面使用的原始顶点
+            var originalIndexMap = new Dictionary<int, int>();
+            for (int i = 0; i < geo.Points.Count; i++)
+            {
+                if (!usedOriginalPoints.Contains(i))
+                {
+                    originalIndexMap[i] = result.Points.Count;
+                    result.Points.Add(geo.Points[i]);
+                }
+            }
+
+            // 添加未挤出的面（重映射索引）
+            for (int i = 0; i < geo.Primitives.Count; i++)
+            {
+                if (!primsToExtrude.Contains(i))
+                {
+                    var prim = geo.Primitives[i];
+                    var newPrim = new int[prim.Length];
+                    bool valid = true;
+                    for (int j = 0; j < prim.Length; j++)
+                    {
+                        if (!originalIndexMap.TryGetValue(prim[j], out newPrim[j]))
+                        {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (valid)
+                        result.Primitives.Add(newPrim);
+                }
+            }
+
+            // 对每个挤出面进行独立化处理并挤出
+            foreach (int primIdx in primsToExtrude)
+            {
+                var prim = geo.Primitives[primIdx];
+                if (prim.Length < 3) continue;
+
+                Vector3 normal = CalculateFaceNormal(geo.Points, prim);
+
+                Vector3 center = Vector3.zero;
+                foreach (int idx in prim) center += geo.Points[idx];
+                center /= prim.Length;
+
+                // 为这个面创建独立的顶点
+                int[] baseVertices = new int[prim.Length];
+                for (int i = 0; i < prim.Length; i++)
+                {
+                    baseVertices[i] = result.Points.Count;
+                    result.Points.Add(geo.Points[prim[i]]);
+                }
+
+                int[] prevLayerVertices = baseVertices;
+
+                for (int d = 1; d <= divisions; d++)
+                {
+                    float t = (float)d / divisions;
+                    float offset = distance * t;
+                    float insetAmount = inset * t;
+
+                    int[] layerVertices = new int[prim.Length];
+                    for (int i = 0; i < prim.Length; i++)
+                    {
+                        Vector3 origPos = geo.Points[prim[i]];
+                        Vector3 toCenter = (center - origPos);
+                        float toCenterMag = toCenter.magnitude;
+                        Vector3 toCenterDir = toCenterMag > 0.0001f ? toCenter / toCenterMag : Vector3.zero;
+                        Vector3 newPos = origPos + normal * offset + toCenterDir * insetAmount;
+
+                        int newIdx = result.Points.Count;
+                        result.Points.Add(newPos);
+                        layerVertices[i] = newIdx;
+                    }
+
+                    if (outputSide)
+                    {
+                        for (int i = 0; i < prim.Length; i++)
+                        {
+                            int next = (i + 1) % prim.Length;
+                            result.Primitives.Add(new int[]
+                            {
+                                prevLayerVertices[i], prevLayerVertices[next],
+                                layerVertices[next], layerVertices[i]
+                            });
+                        }
+                    }
+
+                    prevLayerVertices = layerVertices;
+                }
+
+                if (outputFront)
+                {
+                    int[] frontPrim = new int[prim.Length];
+                    for (int i = 0; i < prim.Length; i++)
+                    {
+                        frontPrim[i] = prevLayerVertices[i];
+                    }
+                    result.Primitives.Add(frontPrim);
+                }
+            }
+
+            ctx.Log($"Extrude Individual: 挤出了 {primsToExtrude.Count} 个独立面");
             return SingleOutput("geometry", result);
         }
 

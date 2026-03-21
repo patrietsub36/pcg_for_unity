@@ -18,6 +18,7 @@ namespace PCGToolkit.Nodes.Geometry
     /// <summary>
     /// 布尔运算（对标 Houdini Boolean SOP）
     /// 使用 geometry3Sharp 的 MeshBoolean 实现真实 CSG 运算
+    /// 通过 GeometryBridge 保留法线和 UV 属性
     /// </summary>
     public class BooleanNode : PCGNodeBase
     {
@@ -65,8 +66,9 @@ namespace PCGToolkit.Nodes.Geometry
                 return SingleOutput("geometry", operation == "subtract" ? geoA.Clone() : new PCGGeometry());
             }
 
-            var meshA = PCGGeometryToDMesh3(geoA);
-            var meshB = PCGGeometryToDMesh3(geoB);
+            // 使用 GeometryBridge 转换，保留法线和 UV
+            var meshA = GeometryBridge.ToDMesh3(geoA);
+            var meshB = GeometryBridge.ToDMesh3(geoB);
 
             DMesh3 resultMesh = null;
 
@@ -101,7 +103,8 @@ namespace PCGToolkit.Nodes.Geometry
                 return SingleOutput("geometry", new PCGGeometry());
             }
 
-            var result = DMesh3ToPCGGeometry(resultMesh);
+            // 使用 GeometryBridge 转换回来，保留法线和 UV
+            var result = GeometryBridge.FromDMesh3(resultMesh);
             ctx.Log($"Boolean: {operation} 完成, {result.Points.Count} 点, {result.Primitives.Count} 面");
             return SingleOutput("geometry", result);
         }
@@ -152,60 +155,6 @@ namespace PCGToolkit.Nodes.Geometry
                 boolean.Result.ReverseOrientation();
 
             return boolean.Result;
-        }
-
-        // ---- 内联转换方法：PCGGeometry <-> DMesh3 ----
-
-        private static DMesh3 PCGGeometryToDMesh3(PCGGeometry geo)
-        {
-            var mesh = new DMesh3(true, false, false, true);
-
-            for (int i = 0; i < geo.Points.Count; i++)
-            {
-                var p = geo.Points[i];
-                mesh.AppendVertex(new Vector3d(p.x, p.y, p.z));
-            }
-
-            for (int pi = 0; pi < geo.Primitives.Count; pi++)
-            {
-                var prim = geo.Primitives[pi];
-                if (prim.Length < 3) continue;
-
-                if (prim.Length == 3)
-                {
-                    mesh.AppendTriangle(prim[0], prim[1], prim[2]);
-                }
-                else
-                {
-                    for (int j = 1; j < prim.Length - 1; j++)
-                        mesh.AppendTriangle(prim[0], prim[j], prim[j + 1]);
-                }
-            }
-
-            return mesh;
-        }
-
-        private static PCGGeometry DMesh3ToPCGGeometry(DMesh3 mesh)
-        {
-            var geo = new PCGGeometry();
-            if (mesh == null || mesh.VertexCount == 0)
-                return geo;
-
-            var compactMesh = new DMesh3(mesh, true);
-
-            for (int vid = 0; vid < compactMesh.VertexCount; vid++)
-            {
-                var v = compactMesh.GetVertex(vid);
-                geo.Points.Add(new Vector3((float)v.x, (float)v.y, (float)v.z));
-            }
-
-            foreach (int tid in compactMesh.TriangleIndices())
-            {
-                var tri = compactMesh.GetTriangle(tid);
-                geo.Primitives.Add(new int[] { tri.a, tri.b, tri.c });
-            }
-
-            return geo;
         }
     }
 }

@@ -5,14 +5,15 @@ using UnityEngine;
 namespace PCGToolkit.Nodes.Utility
 {
     /// <summary>
-    /// Switch 节点：根据整数索引从多个输入中选择一个输出。
+    /// Switch 节点：根据整数索引或表达式从多个输入中选择一个输出。
     /// 对标 Houdini Switch SOP。
+    /// 支持表达式求值，可以从 ctx.GlobalVariables 读取 iteration、groupname 等。
     /// </summary>
     public class SwitchNode : PCGNodeBase
     {
         public override string Name => "Switch";
         public override string DisplayName => "Switch";
-        public override string Description => "根据索引从多个输入中选择一个几何体输出";
+        public override string Description => "根据索引或表达式从多个输入中选择一个几何体输出";
         public override PCGNodeCategory Category => PCGNodeCategory.Utility;
 
         private const int MaxInputs = 4;
@@ -32,6 +33,8 @@ namespace PCGToolkit.Nodes.Utility
             {
                 Min = 0, Max = MaxInputs - 1
             },
+            new PCGParamSchema("expression", PCGPortDirection.Input, PCGPortType.String,
+                "Expression", "表达式（非空时覆盖 index，如 @iteration）", ""),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -45,7 +48,43 @@ namespace PCGToolkit.Nodes.Utility
             Dictionary<string, PCGGeometry> inputGeometries,
             Dictionary<string, object> parameters)
         {
-            int index = GetParamInt(parameters, "index", 0);
+            int index;
+            string expression = GetParamString(parameters, "expression", "");
+
+            // 如果有表达式，使用表达式求值
+            if (!string.IsNullOrEmpty(expression))
+            {
+                var parser = new ExpressionParser();
+                var evalCtx = new ExpressionParser.EvalContext
+                {
+                    Geometry = new PCGGeometry(),
+                    TotalPoints = 0,
+                    TotalPrims = 0
+                };
+
+                // 从 GlobalVariables 加载变量
+                foreach (var kvp in ctx.GlobalVariables)
+                {
+                    evalCtx.Variables[$"@{kvp.Key}"] = kvp.Value;
+                    evalCtx.Variables[kvp.Key] = kvp.Value;
+                }
+
+                try
+                {
+                    float exprValue = parser.EvaluateFloat(expression, evalCtx);
+                    index = Mathf.FloorToInt(exprValue);
+                    ctx.Log($"Switch: Expression '{expression}' evaluated to {index}");
+                }
+                catch (System.Exception e)
+                {
+                    ctx.LogWarning($"Switch: Error evaluating expression '{expression}': {e.Message}");
+                    index = GetParamInt(parameters, "index", 0);
+                }
+            }
+            else
+            {
+                index = GetParamInt(parameters, "index", 0);
+            }
 
             // Clamp 到有效范围
             index = Mathf.Clamp(index, 0, MaxInputs - 1);

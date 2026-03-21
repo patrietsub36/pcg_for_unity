@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace PCGToolkit.Core
@@ -6,11 +7,156 @@ namespace PCGToolkit.Core
     /// <summary>
     /// PCGGeometry 与 Unity Mesh 之间的转换工具。
     /// 仅在最终输出阶段使用。
+    /// 支持多 Submesh 输出（按 @material 属性或 PrimGroups 分组）。
     /// </summary>
     public static class PCGGeometryToMesh
     {
         /// <summary>
-        /// 将 PCGGeometry 转换为 Unity Mesh
+        /// 多 Submesh 转换结果
+        /// </summary>
+        public class MultiSubmeshResult
+        {
+            public Mesh Mesh;
+            public List<string> MaterialPaths; // 每个 submesh 对应的材质路径
+        }
+
+        /// <summary>
+        /// 将 PCGGeometry 转换为 Unity Mesh（支持多 Submesh）
+        /// </summary>
+        public static MultiSubmeshResult ConvertWithSubmeshes(PCGGeometry geometry)
+        {
+            var result = new MultiSubmeshResult
+            {
+                Mesh = new Mesh { name = "PCGMesh" },
+                MaterialPaths = new List<string>()
+            };
+
+            if (geometry == null || geometry.Points.Count == 0)
+                return result;
+
+            result.Mesh.vertices = geometry.Points.ToArray();
+
+            // 检查是否有 @material 属性
+            var materialAttr = geometry.PrimAttribs.GetAttribute("material");
+            var materialIdAttr = geometry.PrimAttribs.GetAttribute("materialId");
+
+            // 按材质分组
+            var submeshGroups = new List<List<int>>();
+            var materialPathSet = new HashSet<string>();
+
+            if (materialAttr != null || materialIdAttr != null)
+            {
+                // 按 @material 属性值分组
+                var materialToSubmesh = new Dictionary<object, int>();
+                for (int i = 0; i < geometry.Primitives.Count; i++)
+                {
+                    object matValue = null;
+                    if (materialAttr != null && i < materialAttr.Values.Count)
+                        matValue = materialAttr.Values[i];
+                    else if (materialIdAttr != null && i < materialIdAttr.Values.Count)
+                        matValue = materialIdAttr.Values[i];
+
+                    if (matValue == null) matValue = 0;
+
+                    if (!materialToSubmesh.TryGetValue(matValue, out int submeshIdx))
+                    {
+                        submeshIdx = submeshGroups.Count;
+                        materialToSubmesh[matValue] = submeshIdx;
+                        submeshGroups.Add(new List<int>());
+
+                        // 记录材质路径
+                        string matPath = matValue is string s ? s : matValue.ToString();
+                        result.MaterialPaths.Add(matPath);
+                    }
+                    submeshGroups[submeshIdx].Add(i);
+                }
+            }
+            else if (geometry.PrimGroups.Count > 0)
+            {
+                // 按 PrimGroups 分组
+                var assignedPrims = new HashSet<int>();
+                foreach (var kvp in geometry.PrimGroups)
+                {
+                    var groupPrims = new List<int>();
+                    foreach (int pi in kvp.Value)
+                    {
+                        if (!assignedPrims.Contains(pi))
+                        {
+                            groupPrims.Add(pi);
+                            assignedPrims.Add(pi);
+                        }
+                    }
+                    if (groupPrims.Count > 0)
+                    {
+                        submeshGroups.Add(groupPrims);
+                        result.MaterialPaths.Add(kvp.Key); // 使用 group 名作为材质标识
+                    }
+                }
+
+                // 未分配的面归入最后一个 submesh
+                var unassigned = new List<int>();
+                for (int i = 0; i < geometry.Primitives.Count; i++)
+                {
+                    if (!assignedPrims.Contains(i))
+                        unassigned.Add(i);
+                }
+                if (unassigned.Count > 0)
+                {
+                    submeshGroups.Add(unassigned);
+                    result.MaterialPaths.Add("default");
+                }
+            }
+            else
+            {
+                // 单 submesh：所有面
+                var allPrims = new List<int>();
+                for (int i = 0; i < geometry.Primitives.Count; i++)
+                    allPrims.Add(i);
+                submeshGroups.Add(allPrims);
+                result.MaterialPaths.Add("default");
+            }
+
+            // 创建 submeshes
+            result.Mesh.subMeshCount = submeshGroups.Count;
+            var allTriangles = new List<int>();
+
+            for (int subIdx = 0; subIdx < submeshGroups.Count; subIdx++)
+            {
+                int startIdx = allTriangles.Count;
+                foreach (int primIdx in submeshGroups[subIdx])
+                {
+                    var prim = geometry.Primitives[primIdx];
+                    if (prim.Length == 3)
+                    {
+                        allTriangles.Add(prim[0]);
+                        allTriangles.Add(prim[1]);
+                        allTriangles.Add(prim[2]);
+                    }
+                    else if (prim.Length == 4)
+                    {
+                        allTriangles.Add(prim[0]);
+                        allTriangles.Add(prim[1]);
+                        allTriangles.Add(prim[2]);
+                        allTriangles.Add(prim[0]);
+                        allTriangles.Add(prim[2]);
+                        allTriangles.Add(prim[3]);
+                    }
+                    else if (prim.Length > 4)
+                    {
+                        TriangulateNgon(geometry.Points, prim, allTriangles);
+                    }
+                }
+                result.Mesh.SetTriangles(allTriangles.Skip(startIdx).ToArray(), subIdx);
+            }
+
+            // 属性映射
+            ApplyAttributes(geometry, result.Mesh);
+
+            return result;
+        }
+
+        /// <summary>
+        /// 将 PCGGeometry 转换为 Unity Mesh（单 Submesh，向后兼容）
         /// </summary>
         public static Mesh Convert(PCGGeometry geometry)
         {
@@ -52,7 +198,16 @@ namespace PCGToolkit.Core
             }
             mesh.triangles = triangles.ToArray();
 
-            // 从 PointAttribs 提取属性映射到 Mesh
+            ApplyAttributes(geometry, mesh);
+
+            return mesh;
+        }
+
+        /// <summary>
+        /// 应用属性到 Mesh（法线、UV、颜色等）
+        /// </summary>
+        private static void ApplyAttributes(PCGGeometry geometry, Mesh mesh)
+        {
             bool hasCustomNormals = false;
 
             // Normal ("N")
@@ -117,8 +272,6 @@ namespace PCGToolkit.Core
 
             mesh.RecalculateBounds();
             mesh.RecalculateTangents();
-
-            return mesh;
         }
 
         /// <summary>

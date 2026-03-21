@@ -12,7 +12,7 @@ namespace PCGToolkit.Nodes.Utility
     ///   byGroup   — 遍历所有 PrimGroup，每次提取该组的面和相关点
     ///   byPiece   — 按连通分量拆分，每个连通分量作为一次迭代
     ///   count     — 按固定次数迭代，每次传入完整几何体
-    /// 每次迭代通过 ctx.GlobalVariables 注入 iteration / groupname
+    /// 每次迭代通过 ctx.GlobalVariables 注入 iteration / groupname / numiterations / value
     /// 所有迭代结果合并（Merge）后输出
     /// </summary>
     public class ForEachNode : PCGNodeBase
@@ -32,6 +32,10 @@ namespace PCGToolkit.Nodes.Utility
                 "Mode", "迭代模式（byGroup/byPiece/count）", "byGroup"),
             new PCGParamSchema("iterations", PCGPortDirection.Input, PCGPortType.Int,
                 "Iterations", "count 模式下的迭代次数", 1),
+            new PCGParamSchema("feedback", PCGPortDirection.Input, PCGPortType.Bool,
+                "Feedback", "count 模式下是否只输出最终迭代结果", false),
+            new PCGParamSchema("valueAttrib", PCGPortDirection.Input, PCGPortType.String,
+                "Value Attribute", "要读取值的属性名（注入到 value 变量）", ""),
         };
 
         public override PCGParamSchema[] Outputs => new[]
@@ -49,6 +53,8 @@ namespace PCGToolkit.Nodes.Utility
             string subGraphPath = GetParamString(parameters, "subGraphPath", "");
             string mode = GetParamString(parameters, "mode", "byGroup");
             int iterations = GetParamInt(parameters, "iterations", 1);
+            bool feedback = GetParamBool(parameters, "feedback", false);
+            string valueAttrib = GetParamString(parameters, "valueAttrib", "");
 
             if (string.IsNullOrEmpty(subGraphPath))
             {
@@ -68,17 +74,17 @@ namespace PCGToolkit.Nodes.Utility
             switch (mode.ToLower())
             {
                 case "bygroup":
-                    pieces = IterateByGroup(geo, subGraphAsset, ctx);
+                    pieces = IterateByGroup(geo, subGraphAsset, valueAttrib, ctx);
                     break;
                 case "bypiece":
-                    pieces = IterateByPiece(geo, subGraphAsset, ctx);
+                    pieces = IterateByPiece(geo, subGraphAsset, valueAttrib, ctx);
                     break;
                 case "count":
-                    pieces = IterateByCount(geo, subGraphAsset, iterations, ctx);
+                    pieces = IterateByCount(geo, subGraphAsset, iterations, feedback, ctx);
                     break;
                 default:
                     ctx.LogWarning($"ForEach: Unknown mode '{mode}', using byGroup");
-                    pieces = IterateByGroup(geo, subGraphAsset, ctx);
+                    pieces = IterateByGroup(geo, subGraphAsset, valueAttrib, ctx);
                     break;
             }
 
@@ -87,14 +93,15 @@ namespace PCGToolkit.Nodes.Utility
             return SingleOutput("geometry", merged);
         }
 
-        private List<PCGGeometry> IterateByGroup(PCGGeometry geo, PCGGraphData subGraph, PCGContext ctx)
+        private List<PCGGeometry> IterateByGroup(PCGGeometry geo, PCGGraphData subGraph, string valueAttrib, PCGContext ctx)
         {
             var results = new List<PCGGeometry>();
+            int totalIterations = geo.PrimGroups.Count;
 
             if (geo.PrimGroups.Count == 0)
             {
                 ctx.LogWarning("ForEach byGroup: no PrimGroups found, running once with full geometry");
-                var result = ExecuteSubGraph(subGraph, geo, ctx, 0, "");
+                var result = ExecuteSubGraph(subGraph, geo, ctx, 0, "", totalIterations, 0f);
                 if (result != null) results.Add(result);
                 return results;
             }
@@ -103,49 +110,91 @@ namespace PCGToolkit.Nodes.Utility
             foreach (var kvp in geo.PrimGroups)
             {
                 var piece = ExtractPrimGroup(geo, kvp.Key, kvp.Value);
-                var result = ExecuteSubGraph(subGraph, piece, ctx, iteration, kvp.Key);
+                float value = GetPieceValue(piece, valueAttrib);
+                var result = ExecuteSubGraph(subGraph, piece, ctx, iteration, kvp.Key, totalIterations, value);
                 if (result != null) results.Add(result);
                 iteration++;
             }
             return results;
         }
 
-        private List<PCGGeometry> IterateByPiece(PCGGeometry geo, PCGGraphData subGraph, PCGContext ctx)
+        private List<PCGGeometry> IterateByPiece(PCGGeometry geo, PCGGraphData subGraph, string valueAttrib, PCGContext ctx)
         {
             var results = new List<PCGGeometry>();
             var pieces = SplitByConnectivity(geo);
+            int totalIterations = pieces.Count;
 
             for (int i = 0; i < pieces.Count; i++)
             {
-                var result = ExecuteSubGraph(subGraph, pieces[i], ctx, i, $"piece_{i}");
+                float value = GetPieceValue(pieces[i], valueAttrib);
+                var result = ExecuteSubGraph(subGraph, pieces[i], ctx, i, $"piece_{i}", totalIterations, value);
                 if (result != null) results.Add(result);
             }
             return results;
         }
 
-        private List<PCGGeometry> IterateByCount(PCGGeometry geo, PCGGraphData subGraph, int count, PCGContext ctx)
+        private List<PCGGeometry> IterateByCount(PCGGeometry geo, PCGGraphData subGraph, int count, bool feedback, PCGContext ctx)
         {
             var results = new List<PCGGeometry>();
             var current = geo;
 
             for (int i = 0; i < count; i++)
             {
-                var result = ExecuteSubGraph(subGraph, current, ctx, i, "");
+                var result = ExecuteSubGraph(subGraph, current, ctx, i, "", count, i);
                 if (result != null)
                 {
-                    results.Add(result);
-                    current = result;
+                    if (feedback)
+                    {
+                        // feedback 模式：只保留最终结果，用于累积变换
+                        current = result;
+                    }
+                    else
+                    {
+                        // 非 feedback 模式：收集所有中间结果
+                        results.Add(result);
+                        current = result;
+                    }
                 }
+            }
+
+            // feedback 模式下只返回最终结果
+            if (feedback)
+            {
+                return new List<PCGGeometry> { current };
             }
             return results;
         }
 
-        private PCGGeometry ExecuteSubGraph(PCGGraphData subGraph, PCGGeometry inputGeo, PCGContext ctx, int iteration, string groupName)
+        private float GetPieceValue(PCGGeometry piece, string valueAttrib)
+        {
+            if (string.IsNullOrEmpty(valueAttrib))
+                return 0f;
+
+            // 尝试从 Detail 属性读取
+            var detailAttr = piece.DetailAttribs.GetAttribute(valueAttrib);
+            if (detailAttr != null && detailAttr.Values.Count > 0)
+            {
+                return System.Convert.ToSingle(detailAttr.Values[0]);
+            }
+
+            // 尝试从第一个点的属性读取
+            var pointAttr = piece.PointAttribs.GetAttribute(valueAttrib);
+            if (pointAttr != null && pointAttr.Values.Count > 0)
+            {
+                return System.Convert.ToSingle(pointAttr.Values[0]);
+            }
+
+            return 0f;
+        }
+
+        private PCGGeometry ExecuteSubGraph(PCGGraphData subGraph, PCGGeometry inputGeo, PCGContext ctx, int iteration, string groupName, int totalIterations, float value)
         {
             var subExecutor = new PCGGraphExecutor(subGraph);
 
             ctx.GlobalVariables["iteration"] = (float)iteration;
             ctx.GlobalVariables["groupname"] = groupName;
+            ctx.GlobalVariables["numiterations"] = (float)totalIterations;
+            ctx.GlobalVariables["value"] = value;
             ctx.SetExternalInput("geometry", inputGeo);
 
             try

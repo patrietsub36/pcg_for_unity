@@ -75,8 +75,9 @@ namespace PCGToolkit.Nodes.Output
                 Directory.CreateDirectory(directory);
             }
 
-            // 转换为 Mesh
-            var mesh = PCGGeometryToMesh.Convert(geo);
+            // 转换为 Mesh（支持多 Submesh）
+            var meshResult = PCGGeometryToMesh.ConvertWithSubmeshes(geo);
+            var mesh = meshResult.Mesh;
             mesh.name = prefabName + "_Mesh";
 
             // 创建临时 GameObject
@@ -86,9 +87,42 @@ namespace PCGToolkit.Nodes.Output
             var meshFilter = go.AddComponent<MeshFilter>();
             meshFilter.sharedMesh = mesh;
 
-            // 添加 MeshRenderer
+            // 添加 MeshRenderer 并分配材质
             var renderer = go.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = AssetDatabase.GetBuiltinExtraResource<Material>("Default-Diffuse.mat");
+            var materials = new List<Material>();
+
+            foreach (var matPath in meshResult.MaterialPaths)
+            {
+                Material mat = null;
+
+                // 尝试加载材质
+                if (!string.IsNullOrEmpty(matPath) && matPath != "default")
+                {
+                    // 尝试多种路径格式
+                    string[] tryPaths = new string[]
+                    {
+                        matPath,
+                        matPath.EndsWith(".mat") ? matPath : matPath + ".mat",
+                        $"Assets/{matPath}",
+                        $"Assets/{matPath}.mat",
+                        $"Assets/Materials/{matPath}.mat"
+                    };
+
+                    foreach (var tryPath in tryPaths)
+                    {
+                        mat = AssetDatabase.LoadAssetAtPath<Material>(tryPath);
+                        if (mat != null) break;
+                    }
+                }
+
+                // Fallback 到默认材质
+                if (mat == null)
+                    mat = AssetDatabase.GetBuiltinExtraResource<Material>("Default-Diffuse.mat");
+
+                materials.Add(mat);
+            }
+
+            renderer.sharedMaterials = materials.ToArray();
 
             // 添加碰撞体
             if (addCollider)
@@ -108,7 +142,7 @@ namespace PCGToolkit.Nodes.Output
             PrefabUtility.SaveAsPrefabAsset(go, savePath);
             Object.DestroyImmediate(go);
 
-            ctx.Log($"SavePrefab: 已保存到 {savePath}");
+            ctx.Log($"SavePrefab: 已保存到 {savePath} ({mesh.subMeshCount} submeshes, {materials.Count} materials)");
 
             // 将 prefabPath 通过 GlobalVariables 传递
             ctx.GlobalVariables[$"{ctx.CurrentNodeId}.prefabPath"] = savePath;
