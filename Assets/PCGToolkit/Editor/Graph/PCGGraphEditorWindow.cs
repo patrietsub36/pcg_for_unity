@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;  
 using UnityEditor.UIElements;  
 using UnityEngine;  
@@ -260,7 +261,7 @@ namespace PCGToolkit.Graph
         private void GenerateToolbar()  
         {  
             var toolbar = new Toolbar();
-            var L = PCGToolkit.Core.PCGLocalization.Get;
+            Func<string, string> L = PCGToolkit.Core.PCGLocalization.Get;
   
             // ---- 文件操作按钮 ----  
             _newButton = new Button(() => NewGraph()) { text = L("btn.new") };  
@@ -373,7 +374,7 @@ namespace PCGToolkit.Graph
 
         private void RefreshToolbarLabels()
         {
-            var L = PCGToolkit.Core.PCGLocalization.Get;
+            Func<string, string> L = PCGToolkit.Core.PCGLocalization.Get;
             if (_newButton != null) _newButton.text = L("btn.new");
             if (_saveButton != null) _saveButton.text = L("btn.save");
             if (_saveAsButton != null) _saveAsButton.text = L("btn.saveas");

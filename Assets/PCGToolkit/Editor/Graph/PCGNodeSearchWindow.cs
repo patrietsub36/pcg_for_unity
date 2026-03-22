@@ -36,7 +36,7 @@ namespace PCGToolkit.Graph
   
         public List<SearchTreeEntry> CreateSearchTree(SearchWindowContext context)  
         {  
-            var L = PCGLocalization.Get;
+            Func<string, string> L = PCGLocalization.Get;
             var tree = new List<SearchTreeEntry>  
             {  
                 new SearchTreeGroupEntry(new GUIContent(L("search.title")), 0),  
