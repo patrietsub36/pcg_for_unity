@@ -59,6 +59,16 @@ namespace PCGToolkit.Graph
 
             // 迭代四：注册本地化变更回调
             PCGToolkit.Core.PCGLocalization.OnLanguageChanged += RefreshToolbarLabels;
+
+            // 自动打开 Inspector（现在是唯一的参数编辑入口）
+            EditorApplication.delayCall += () =>
+            {
+                if (this != null && _inspectorWindow == null)
+                {
+                    _inspectorWindow = PCGNodeInspectorWindow.Open();
+                    _inspectorWindow.BindGraphView(graphView);
+                }
+            };
         }
 
         private void Update()
@@ -113,6 +123,13 @@ namespace PCGToolkit.Graph
             
             // 迭代一：注册脏状态回调
             graphView.OnGraphChanged += MarkDirty;
+
+            // 连线/断线时刷新 Inspector（参数连接状态变化）
+            graphView.OnGraphChanged += () =>
+            {
+                if (_inspectorWindow != null && _lastSelectedNode != null)
+                    _inspectorWindow.InspectNode(_lastSelectedNode);
+            };
             
             // 迭代三：注册节点点击预览回调
             graphView.OnNodeClicked += OnNodeClickedForPreview;

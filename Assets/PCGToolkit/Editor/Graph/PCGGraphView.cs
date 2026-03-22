@@ -662,9 +662,6 @@ namespace PCGToolkit.Graph
   
                 var edge = outputPort.ConnectTo(inputPort);  
                 AddElement(edge);  
-  
-                // 隐藏已连接端口的内联编辑器
-                inputVisual.OnPortConnectionChanged(edgeData.InputPort, true);  
             }
             
             // 迭代四修复：加载 Groups
@@ -860,44 +857,24 @@ namespace PCGToolkit.Graph
                 }
             }
 
-            // 处理新建连线 → 隐藏内联编辑器  
-            if (change.edgesToCreate != null)  
-            {  
-                foreach (var edge in change.edgesToCreate)  
-                {  
-                    if (edge.input?.node is PCGNodeVisual inputVisual)  
-                    {  
-                        var portName = FindSchemaName(inputVisual, edge.input);  
-                        if (portName != null)  
-                            inputVisual.OnPortConnectionChanged(portName, true);  
-                    }  
-                }  
-            }  
-  
-            // 处理删除元素 → 如果删除的是边，恢复内联编辑器  
-            if (change.elementsToRemove != null)  
-            {  
-                foreach (var element in change.elementsToRemove)  
-                {  
-                    if (element is Edge removedEdge)  
-                    {  
-                        if (removedEdge.input?.node is PCGNodeVisual inputVisual)  
-                        {  
-                            var portName = FindSchemaName(inputVisual, removedEdge.input);  
-                            if (portName != null)  
-                            {  
-                                bool stillConnected = false;  
-                                edges.ForEach(e =>  
-                                {  
-                                    if (e != removedEdge && e.input == removedEdge.input)  
-                                        stillConnected = true;  
-                                });  
-                                if (!stillConnected)  
-                                    inputVisual.OnPortConnectionChanged(portName, false);  
-                            }  
-                        }  
-                    }  
-                }  
+            // 处理新建连线
+            if (change.edgesToCreate != null)
+            {
+                foreach (var edge in change.edgesToCreate)
+                {
+                    // 连线时 Inspector 会通过 Update() 轮询自动刷新连接状态
+                    _ = edge;
+                }
+            }
+
+            // 处理删除元素
+            if (change.elementsToRemove != null)
+            {
+                foreach (var element in change.elementsToRemove)
+                {
+                    _ = element; // Inspector 轮询自动刷新
+                }
+            }
             }  
   
             return change;  

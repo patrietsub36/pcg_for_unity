@@ -1,8 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
-using UnityEditor;
 using UnityEditor.Experimental.GraphView;
-using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 using PCGToolkit.Core;
@@ -26,7 +23,6 @@ namespace PCGToolkit.Graph
         private VisualElement _highlightBorder;
 
         // ---- 内联默认值编辑相关 ----
-        private Dictionary<string, VisualElement> _portWidgets = new Dictionary<string, VisualElement>();
         private Dictionary<string, object> _portDefaultValues = new Dictionary<string, object>();
         private Dictionary<string, PCGParamSchema> _inputSchemas = new Dictionary<string, PCGParamSchema>();
 
@@ -85,25 +81,10 @@ namespace PCGToolkit.Graph
         {
             if (values == null) return;
             foreach (var kvp in values)
-            {
                 _portDefaultValues[kvp.Key] = kvp.Value;
-                // 更新 UI 控件的显示值
-                UpdateWidgetValue(kvp.Key, kvp.Value);
-            }
         }
 
-        /// <summary>
-        /// 当端口连接状态变化时调用，显示/隐藏内联编辑器
-        /// </summary>
-        public void OnPortConnectionChanged(string portName, bool isConnected)
-        {
-            if (_portWidgets.TryGetValue(portName, out var widget))
-            {
-                widget.style.display = isConnected
-                    ? DisplayStyle.None
-                    : DisplayStyle.Flex;
-            }
-        }
+        public void OnPortConnectionChanged(string portName, bool isConnected) { }
 
         /// <summary>
         /// 检查指定端口是否已连接
@@ -270,45 +251,7 @@ namespace PCGToolkit.Graph
             style.borderLeftColor = new StyleColor(new Color(color.r * 0.7f, color.g * 0.7f, color.b * 0.7f));
             style.borderRightColor = new StyleColor(new Color(color.r * 0.7f, color.g * 0.7f, color.b * 0.7f));
 
-            // P2-2: 添加参数折叠按钮
-            AddCollapseButton();
-        }
-
-        // P2-2: 参数折叠功能
-        private bool _paramsExpanded = true;
-        private Button _collapseButton;
-
-        private void AddCollapseButton()
-        {
-            if (_collapseButton != null) return;
-
-            _collapseButton = new Button(ToggleParams)
-            {
-                text = "▼",
-                style =
-                {
-                    width = 16, height = 16,
-                    fontSize = 10,
-                    marginLeft = 4, marginRight = 0,
-                    paddingLeft = 0, paddingRight = 0,
-                    backgroundColor = new StyleColor(Color.clear),
-                    color = new StyleColor(Color.white),
-                }
-            };
-            _collapseButton.tooltip = "Collapse/Expand parameters";
-            titleContainer.Insert(0, _collapseButton);
-        }
-
-        private void ToggleParams()
-        {
-            _paramsExpanded = !_paramsExpanded;
-            _collapseButton.text = _paramsExpanded ? "▼" : "▶";
-
-            // 切换非 Geometry 端口的可见性
-            foreach (var kvp in _portWidgets)
-            {
-                kvp.Value.style.display = _paramsExpanded ? DisplayStyle.Flex : DisplayStyle.None;
-            }
+            style.minWidth = 120;
         }
 
         // P1-4: 更新节点边框（选中/错误状态）
@@ -369,413 +312,39 @@ namespace PCGToolkit.Graph
                     Orientation.Horizontal, Direction.Input,
                     portCapacity, GetSystemType(schema.PortType));
 
-                port.portName = schema.DisplayName;
-                port.portColor = GetPortColor(schema.PortType);
+                // Geometry 端口保留名称；参数端口只显示短类型标记
+                if (schema.PortType == PCGPortType.Geometry || schema.PortType == PCGPortType.Any)
+                    port.portName = schema.DisplayName;
+                else
+                    port.portName = GetPortTypeShortLabel(schema.PortType);
 
-                // 迭代二：添加端口 Tooltip
-                port.tooltip = schema.Description;
+                port.portColor = GetPortColor(schema.PortType);
+                port.tooltip = $"{schema.DisplayName}: {schema.Description}";
 
                 inputPorts[schema.Name] = port;
                 _inputSchemas[schema.Name] = schema;
 
-                // 为非 Geometry 类型的端口创建内联编辑器
-                if (schema.PortType != PCGPortType.Geometry && schema.PortType != PCGPortType.Any)
-                {
-                    var widget = CreateInlineWidget(schema);
-                    if (widget != null)
-                    {
-                        port.Add(widget);
-                        _portWidgets[schema.Name] = widget;
-                    }
-                }
-
                 // 初始化默认值
-                if (schema.DefaultValue != null)
-                {
+                if (schema.EnumOptions != null && schema.EnumOptions.Length > 0)
+                    _portDefaultValues[schema.Name] = schema.DefaultValue as string ?? schema.EnumOptions[0];
+                else if (schema.DefaultValue != null)
                     _portDefaultValues[schema.Name] = schema.DefaultValue;
-                }
 
                 inputContainer.Add(port);
             }
         }
 
-        /// <summary>
-        /// 根据端口类型创建对应的内联编辑控件
-        /// </summary>
-        private VisualElement CreateInlineWidget(PCGParamSchema schema)
+        private static string GetPortTypeShortLabel(PCGPortType t)
         {
-            VisualElement widget = null;
-
-            // 迭代四：Enum/Dropdown 支持
-            if (schema.EnumOptions != null && schema.EnumOptions.Length > 0)
+            switch (t)
             {
-                var defaultIndex = 0;
-                var defaultVal = schema.DefaultValue;
-
-                if (defaultVal is int idx && idx >= 0 && idx < schema.EnumOptions.Length)
-                {
-                    defaultIndex = idx;
-                }
-                else if (defaultVal is string str)
-                {
-                    for (int i = 0; i < schema.EnumOptions.Length; i++)
-                    {
-                        if (schema.EnumOptions[i] == str)
-                        {
-                            defaultIndex = i;
-                            break;
-                        }
-                    }
-                }
-
-                _portDefaultValues[schema.Name] = schema.EnumOptions[defaultIndex];
-
-                var popup = new PopupField<string>(schema.EnumOptions.ToList(), defaultIndex)
-                {
-                    style =
-                    {
-                        width = 80,
-                        marginLeft = 4,
-                        fontSize = 10,
-                    }
-                };
-
-                popup.RegisterValueChangedCallback(evt =>
-                {
-                    _portDefaultValues[schema.Name] = evt.newValue;
-                });
-
-                return popup;
-            }
-
-            switch (schema.PortType)
-            {
-                case PCGPortType.Float:
-                {
-                    var defaultVal = schema.DefaultValue is float f ? f : 0f;
-                    _portDefaultValues[schema.Name] = defaultVal;
-
-                    // 迭代二：当 Min/Max 有定义时使用 Slider
-                    if (schema.Min != float.MinValue && schema.Max != float.MaxValue)
-                    {
-                        var slider = new Slider(schema.Min, schema.Max)
-                        {
-                            value = defaultVal,
-                            style =
-                            {
-                                width = 80,
-                                marginLeft = 4,
-                            }
-                        };
-
-                        var label = new Label(defaultVal.ToString("F2"))
-                        {
-                            style =
-                            {
-                                fontSize = 9,
-                                width = 40,
-                                unityTextAlign = TextAnchor.MiddleRight,
-                            }
-                        };
-
-                        slider.RegisterValueChangedCallback(evt =>
-                        {
-                            var val = evt.newValue;
-                            _portDefaultValues[schema.Name] = val;
-                            label.text = val.ToString("F2");
-                        });
-
-                        var container = new VisualElement
-                        {
-                            style =
-                            {
-                                flexDirection = FlexDirection.Row,
-                                marginLeft = 4,
-                            }
-                        };
-                        container.Add(slider);
-                        container.Add(label);
-                        widget = container;
-                    }
-                    else
-                    {
-                        var field = new FloatField()
-                        {
-                            value = defaultVal,
-                            style =
-                            {
-                                width = 60,
-                                marginLeft = 4,
-                                fontSize = 10,
-                            }
-                        };
-                        field.RegisterValueChangedCallback(evt =>
-                        {
-                            var val = evt.newValue;
-                            // 应用 Min/Max 约束
-                            if (schema.Min != float.MinValue && val < schema.Min) val = schema.Min;
-                            if (schema.Max != float.MaxValue && val > schema.Max) val = schema.Max;
-                            if (val != evt.newValue) field.SetValueWithoutNotify(val);
-                            _portDefaultValues[schema.Name] = val;
-                        });
-                        widget = field;
-                    }
-                    break;
-                }
-
-                case PCGPortType.Int:
-                {
-                    var defaultVal = schema.DefaultValue is int i ? i : 0;
-                    _portDefaultValues[schema.Name] = defaultVal;
-
-                    // 迭代二：当 Min/Max 有定义时使用 Slider（整数）
-                    if (schema.Min != float.MinValue && schema.Max != float.MaxValue)
-                    {
-                        var slider = new Slider(schema.Min, schema.Max)
-                        {
-                            value = defaultVal,
-                            style =
-                            {
-                                width = 80,
-                                marginLeft = 4,
-                            }
-                        };
-
-                        var label = new Label(defaultVal.ToString())
-                        {
-                            style =
-                            {
-                                fontSize = 9,
-                                width = 30,
-                                unityTextAlign = TextAnchor.MiddleRight,
-                            }
-                        };
-
-                        slider.RegisterValueChangedCallback(evt =>
-                        {
-                            var val = Mathf.RoundToInt(evt.newValue);
-                            slider.SetValueWithoutNotify(val);
-                            _portDefaultValues[schema.Name] = val;
-                            label.text = val.ToString();
-                        });
-
-                        var container = new VisualElement
-                        {
-                            style =
-                            {
-                                flexDirection = FlexDirection.Row,
-                                marginLeft = 4,
-                            }
-                        };
-                        container.Add(slider);
-                        container.Add(label);
-                        widget = container;
-                    }
-                    else
-                    {
-                        var field = new IntegerField()
-                        {
-                            value = defaultVal,
-                            style =
-                            {
-                                width = 60,
-                                marginLeft = 4,
-                                fontSize = 10,
-                            }
-                        };
-                        field.RegisterValueChangedCallback(evt =>
-                        {
-                            var val = evt.newValue;
-                            if (schema.Min != float.MinValue && val < (int)schema.Min) val = (int)schema.Min;
-                            if (schema.Max != float.MaxValue && val > (int)schema.Max) val = (int)schema.Max;
-                            if (val != evt.newValue) field.SetValueWithoutNotify(val);
-                            _portDefaultValues[schema.Name] = val;
-                        });
-                        widget = field;
-                    }
-                    break;
-                }
-
-                case PCGPortType.Bool:
-                {
-                    var defaultVal = schema.DefaultValue is bool b && b;
-                    _portDefaultValues[schema.Name] = defaultVal;
-
-                    var field = new Toggle()
-                    {
-                        value = defaultVal,
-                        style =
-                        {
-                            marginLeft = 4,
-                        }
-                    };
-                    field.RegisterValueChangedCallback(evt =>
-                    {
-                        _portDefaultValues[schema.Name] = evt.newValue;
-                    });
-                    widget = field;
-                    break;
-                }
-
-                case PCGPortType.String:
-                {
-                    var defaultVal = schema.DefaultValue as string ?? "";
-                    _portDefaultValues[schema.Name] = defaultVal;
-
-                    var field = new TextField()
-                    {
-                        value = defaultVal,
-                        style =
-                        {
-                            width = 80,
-                            marginLeft = 4,
-                            fontSize = 10,
-                        }
-                    };
-                    field.RegisterValueChangedCallback(evt =>
-                    {
-                        _portDefaultValues[schema.Name] = evt.newValue;
-                    });
-                    widget = field;
-                    break;
-                }
-
-                case PCGPortType.Vector3:
-                {
-                    var defaultVal = schema.DefaultValue is Vector3 v ? v : Vector3.zero;
-                    _portDefaultValues[schema.Name] = defaultVal;
-
-                    // 迭代四：改为垂直排列，增大宽度
-                    var container = new VisualElement()
-                    {
-                        style =
-                        {
-                            flexDirection = FlexDirection.Column,
-                            marginLeft = 4,
-                            marginTop = 2,
-                            marginBottom = 2,
-                        }
-                    };
-
-                    var fieldX = new FloatField("X") { value = defaultVal.x, style = { width = 70, fontSize = 9 } };
-                    var fieldY = new FloatField("Y") { value = defaultVal.y, style = { width = 70, fontSize = 9 } };
-                    var fieldZ = new FloatField("Z") { value = defaultVal.z, style = { width = 70, fontSize = 9 } };
-
-                    // 设置标签样式
-                    fieldX.labelElement.style.minWidth = 12;
-                    fieldY.labelElement.style.minWidth = 12;
-                    fieldZ.labelElement.style.minWidth = 12;
-
-                    System.Action updateVector = () =>
-                    {
-                        _portDefaultValues[schema.Name] = new Vector3(fieldX.value, fieldY.value, fieldZ.value);
-                    };
-
-                    fieldX.RegisterValueChangedCallback(_ => updateVector());
-                    fieldY.RegisterValueChangedCallback(_ => updateVector());
-                    fieldZ.RegisterValueChangedCallback(_ => updateVector());
-
-                    container.Add(fieldX);
-                    container.Add(fieldY);
-                    container.Add(fieldZ);
-                    widget = container;
-                    break;
-                }
-
-                case PCGPortType.Color:
-                {
-                    var defaultVal = schema.DefaultValue is Color c ? c : Color.white;
-                    _portDefaultValues[schema.Name] = defaultVal;
-
-                    var field = new ColorField()
-                    {
-                        value = defaultVal,
-                        style =
-                        {
-                            width = 60,
-                            marginLeft = 4,
-                        }
-                    };
-                    field.RegisterValueChangedCallback(evt =>
-                    {
-                        _portDefaultValues[schema.Name] = evt.newValue;
-                    });
-                    widget = field;
-                    break;
-                }
-            }
-
-            return widget;
-        }
-
-        /// <summary>
-        /// 更新指定端口的控件显示值（用于加载时恢复）
-        /// </summary>
-        private void UpdateWidgetValue(string portName, object value)
-        {
-            if (!_portWidgets.TryGetValue(portName, out var widget)) return;
-            if (!_inputSchemas.TryGetValue(portName, out var schema)) return;
-
-            switch (schema.PortType)
-            {
-                case PCGPortType.Float when widget is FloatField ff && value is float fv:
-                    ff.SetValueWithoutNotify(fv);
-                    break;
-                // 迭代四修复：支持 Slider
-                case PCGPortType.Float when schema.Min != float.MinValue && schema.Max != float.MaxValue && value is float fval:
-                {
-                    var slider = widget.Q<Slider>();
-                    if (slider != null)
-                    {
-                        slider.SetValueWithoutNotify(fval);
-                        var label = widget.Q<Label>();
-                        if (label != null) label.text = fval.ToString("F2");
-                    }
-                    break;
-                }
-                case PCGPortType.Int when widget is IntegerField intF && value is int iv:
-                    intF.SetValueWithoutNotify(iv);
-                    break;
-                // 迭代四修复：支持 Int Slider
-                case PCGPortType.Int when schema.Min != float.MinValue && schema.Max != float.MaxValue && value is int ival:
-                {
-                    var slider = widget.Q<Slider>();
-                    if (slider != null)
-                    {
-                        slider.SetValueWithoutNotify(ival);
-                        var label = widget.Q<Label>();
-                        if (label != null) label.text = ival.ToString();
-                    }
-                    break;
-                }
-                case PCGPortType.Bool when widget is Toggle toggle && value is bool bv:
-                    toggle.SetValueWithoutNotify(bv);
-                    break;
-                case PCGPortType.String when widget is TextField tf && value is string sv:
-                    tf.SetValueWithoutNotify(sv);
-                    break;
-                case PCGPortType.Color when widget is ColorField cf && value is Color cv:
-                    cf.SetValueWithoutNotify(cv);
-                    break;
-                case PCGPortType.Vector3 when value is Vector3 vec:
-                {
-                    var fields = widget.Query<FloatField>().ToList();
-                    if (fields.Count >= 3)
-                    {
-                        fields[0].SetValueWithoutNotify(vec.x);
-                        fields[1].SetValueWithoutNotify(vec.y);
-                        fields[2].SetValueWithoutNotify(vec.z);
-                    }
-                    break;
-                }
-                // 迭代四修复：Enum/Dropdown 支持
-                case PCGPortType.String when schema.EnumOptions != null && widget is PopupField<string> popup && value is string enumVal:
-                {
-                    var index = System.Array.IndexOf(schema.EnumOptions, enumVal);
-                    if (index >= 0)
-                        popup.SetValueWithoutNotify(enumVal);
-                    break;
-                }
+                case PCGPortType.Float:   return "F";
+                case PCGPortType.Int:     return "I";
+                case PCGPortType.Bool:    return "B";
+                case PCGPortType.String:  return "S";
+                case PCGPortType.Vector3: return "V3";
+                case PCGPortType.Color:   return "C";
+                default:                  return "";
             }
         }
 
