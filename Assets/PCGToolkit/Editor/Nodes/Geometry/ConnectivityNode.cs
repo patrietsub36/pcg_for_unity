@@ -24,7 +24,10 @@ namespace PCGToolkit.Nodes.Geometry
             new PCGParamSchema("attribName", PCGPortDirection.Input, PCGPortType.String,
                 "Attribute Name", "输出属性名", "class"),
             new PCGParamSchema("connectType", PCGPortDirection.Input, PCGPortType.String,
-                "Connect Type", "连通类型（point/prim）", "point"),
+                "Connect Type", "连通类型（point/prim）", "point")
+            {
+                EnumOptions = new[] { "point", "prim" }
+            },
         };
 
         public override PCGParamSchema[] Outputs => new[]

@@ -26,7 +26,10 @@ namespace PCGToolkit.Nodes.Geometry
             new PCGParamSchema("offset", PCGPortDirection.Input, PCGPortType.Float,
                 "Offset", "偏移量（正=膨胀，负=收缩）", 0.1f),
             new PCGParamSchema("joinType", PCGPortDirection.Input, PCGPortType.String,
-                "Join Type", "拐角类型（round/miter/square）", "round"),
+                "Join Type", "拐角类型（round/miter/square）", "round")
+            {
+                EnumOptions = new[] { "round", "miter", "square" }
+            },
             new PCGParamSchema("miterLimit", PCGPortDirection.Input, PCGPortType.Float,
                 "Miter Limit", "Miter 模式的尖角限制", 2.0f),
         };

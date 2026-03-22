@@ -127,9 +127,9 @@ namespace PCGToolkit.Core
                 string word = source.Substring(pos, keyword.Length);
                 if (word == keyword)
                 {
-                    // 确保是完整的关键词（后面不是字母或数字）
+                    // 确保是完整的关键词（后面不是字母、数字或下划线）
                     int afterPos = pos + keyword.Length;
-                    if (afterPos >= source.Length || !char.IsLetterOrDigit(source[afterPos]))
+                    if (afterPos >= source.Length || (!char.IsLetterOrDigit(source[afterPos]) && source[afterPos] != '_'))
                     {
                         pos = afterPos;
                         return true;
@@ -192,30 +192,10 @@ namespace PCGToolkit.Core
             if (source[pos] == '{')
             {
                 pos++; // skip '{'
-                int braceCount = 1;
-                while (pos < source.Length && braceCount > 0)
+                while (pos < source.Length)
                 {
                     SkipWhitespace();
-                    if (pos >= source.Length) break;
-
-                    if (source[pos] == '{')
-                    {
-                        braceCount++;
-                        pos++;
-                        continue;
-                    }
-                    else if (source[pos] == '}')
-                    {
-                        braceCount--;
-                        if (braceCount == 0)
-                        {
-                            pos++; // skip matching '}'
-                            break;
-                        }
-                        pos++;
-                        continue;
-                    }
-
+                    if (pos < source.Length && source[pos] == '}') { pos++; break; }
                     ParseStatement();
                 }
             }
@@ -261,7 +241,6 @@ namespace PCGToolkit.Core
             int savedPos = pos;
 
             // 检查是否以 @ 开头（属性变量）
-            bool isAttributeVar = source[pos] == '@';
 
             // 预扫描找到 '='
             int eqPos = -1;
@@ -270,12 +249,15 @@ namespace PCGToolkit.Core
             {
                 if (source[scanPos] == '=' && scanPos > pos)
                 {
-                    // 确保不是 == 比较运算符
-                    if (scanPos + 1 >= source.Length || source[scanPos + 1] != '=')
-                    {
-                        eqPos = scanPos;
-                        break;
-                    }
+                    // 排除 == 比较运算符
+                    if (scanPos + 1 < source.Length && source[scanPos + 1] == '=')
+                    { scanPos++; continue; }
+                    // 排除 !=, <=, >=
+                    char prev = source[scanPos - 1];
+                    if (prev == '!' || prev == '<' || prev == '>')
+                    { scanPos++; continue; }
+                    eqPos = scanPos;
+                    break;
                 }
                 scanPos++;
             }
@@ -640,7 +622,7 @@ namespace PCGToolkit.Core
             if (pos < source.Length && source[pos] == '-')
             {
                 pos++;
-                var val = ParsePrimary();
+                var val = ParseUnary();
                 if (val is Vector3 v) return -v;
                 return -ToFloat(val);
             }

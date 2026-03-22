@@ -25,7 +25,10 @@ namespace PCGToolkit.Nodes.Create
             new PCGParamSchema("groupName", PCGPortDirection.Input, PCGPortType.String,
                 "Group Name", "分组名称", "newGroup"),
             new PCGParamSchema("class", PCGPortDirection.Input, PCGPortType.String,
-                "Class", "分组类型（point/primitive）", "point"),
+                "Class", "分组类型（point/primitive）", "point")
+            {
+                EnumOptions = new[] { "point", "primitive" }
+            },
         };
 
         public override PCGParamSchema[] Outputs => new[]

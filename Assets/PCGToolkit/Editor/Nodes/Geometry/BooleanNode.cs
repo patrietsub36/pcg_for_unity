@@ -34,7 +34,10 @@ namespace PCGToolkit.Nodes.Geometry
             new PCGParamSchema("inputB", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Input B", "第二个几何体", null, required: true),
             new PCGParamSchema("operation", PCGPortDirection.Input, PCGPortType.String,
-                "Operation", "布尔运算类型（union/intersect/subtract）", "union"),
+                "Operation", "布尔运算类型（union/intersect/subtract）", "union")
+            {
+                EnumOptions = new[] { "union", "intersect", "subtract" }
+            },
             new PCGParamSchema("vertexSnapTol", PCGPortDirection.Input, PCGPortType.Float,
                 "Vertex Snap Tolerance", "顶点合并容差", 0.00001f),
         };

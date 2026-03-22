@@ -19,7 +19,10 @@ namespace PCGToolkit.Nodes.Topology
             new PCGParamSchema("input", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Input", "输入几何体", null, required: true),
             new PCGParamSchema("fillMode", PCGPortDirection.Input, PCGPortType.String,
-                "Fill Mode", "填充模式（triangulate/fan/center）", "triangulate"),
+                "Fill Mode", "填充模式（triangulate/fan/center）", "triangulate")
+            {
+                EnumOptions = new[] { "triangulate", "fan", "center" }
+            },
             new PCGParamSchema("reverse", PCGPortDirection.Input, PCGPortType.Bool,
                 "Reverse", "反转填充面法线", false),
         };

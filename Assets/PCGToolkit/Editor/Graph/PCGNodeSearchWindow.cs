@@ -10,8 +10,8 @@ namespace PCGToolkit.Graph
 {  
     /// <summary>  
     /// 节点搜索窗口（Tab 键或从端口拖拽时弹出）  
-    /// 支持按名称/类别搜索，模糊匹配  
-    /// 迭代二：支持端口类型过滤  
+    /// 迭代二：支持端口类型过滤
+    /// 迭代四：多字段搜索（DisplayName + Description + Name），描述副标题
     /// </summary>  
     public class PCGNodeSearchWindow : ScriptableObject, ISearchWindowProvider  
     {  
@@ -28,9 +28,6 @@ namespace PCGToolkit.Graph
             editorWindow = window;  
         }
         
-        /// <summary>
-        /// 迭代二：设置端口过滤条件
-        /// </summary>
         public void SetPortFilter(PCGPortType? portType, Direction? direction)
         {
             _filterPortType = portType;
@@ -39,12 +36,12 @@ namespace PCGToolkit.Graph
   
         public List<SearchTreeEntry> CreateSearchTree(SearchWindowContext context)  
         {  
+            var L = PCGLocalization.Get;
             var tree = new List<SearchTreeEntry>  
             {  
-                new SearchTreeGroupEntry(new GUIContent("Create Node"), 0),  
+                new SearchTreeGroupEntry(new GUIContent(L("search.title")), 0),  
             };  
   
-            // 按类别分组  
             var categories = new[]  
             {  
                 PCGNodeCategory.Create,  
@@ -67,15 +64,25 @@ namespace PCGToolkit.Graph
                 var nodeList = new List<IPCGNode>(nodes);  
                 if (nodeList.Count == 0) continue;
                 
-                // 迭代二：过滤节点
                 var filteredNodes = FilterNodes(nodeList);
                 if (filteredNodes.Count == 0) continue;
+
+                string catLabel = L($"cat.{category}");
+                tree.Add(new SearchTreeGroupEntry(new GUIContent(catLabel), 1));  
   
-                tree.Add(new SearchTreeGroupEntry(new GUIContent(category.ToString()), 1));  
-  
-                foreach (var node in filteredNodes)  
-                {  
-                    tree.Add(new SearchTreeEntry(new GUIContent(node.DisplayName))  
+                foreach (var node in filteredNodes)
+                {
+                    // 迭代四：在节点名称后附加简短描述作为副标题
+                    string label = node.DisplayName;
+                    if (!string.IsNullOrEmpty(node.Description))
+                    {
+                        // 截取描述前 20 个字符避免过长
+                        string desc = node.Description.Length > 20
+                            ? node.Description.Substring(0, 20) + "…"
+                            : node.Description;
+                        label = $"{node.DisplayName}  —  {desc}";
+                    }
+                    tree.Add(new SearchTreeEntry(new GUIContent(label))  
                     {  
                         userData = node,  
                         level = 2,  
@@ -86,41 +93,33 @@ namespace PCGToolkit.Graph
             return tree;  
         }
         
-        /// <summary>
-        /// 迭代二：根据端口过滤条件筛选节点
-        /// </summary>
         private List<IPCGNode> FilterNodes(List<IPCGNode> nodes)
         {
-            if (!_filterPortType.HasValue || !_filterDirection.HasValue)
-                return nodes;
-            
-            var result = new List<IPCGNode>();
-            
-            foreach (var node in nodes)
+            // 端口类型过滤（来自拖拽）
+            List<IPCGNode> portFiltered = nodes;
+            if (_filterPortType.HasValue && _filterDirection.HasValue)
             {
-                // 如果是从输入端口拖拽，找有兼容输出端口的节点
-                // 如果是从输出端口拖拽，找有兼容输入端口的节点
-                var targetDirection = _filterDirection.Value == Direction.Input 
-                    ? PCGPortDirection.Output 
-                    : PCGPortDirection.Input;
-                
-                var portList = targetDirection == PCGPortDirection.Output 
-                    ? node.Outputs 
-                    : node.Inputs;
-                
-                if (portList == null) continue;
-                
-                foreach (var schema in portList)
+                portFiltered = new List<IPCGNode>();
+                foreach (var node in nodes)
                 {
-                    if (IsPortTypeCompatible(schema.PortType, _filterPortType.Value))
+                    var targetDirection = _filterDirection.Value == Direction.Input
+                        ? PCGPortDirection.Output
+                        : PCGPortDirection.Input;
+                    var portList = targetDirection == PCGPortDirection.Output
+                        ? node.Outputs
+                        : node.Inputs;
+                    if (portList == null) continue;
+                    foreach (var schema in portList)
                     {
-                        result.Add(node);
-                        break;
+                        if (IsPortTypeCompatible(schema.PortType, _filterPortType.Value))
+                        {
+                            portFiltered.Add(node);
+                            break;
+                        }
                     }
                 }
             }
-            
-            return result;
+            return portFiltered;
         }
         
         private bool IsPortTypeCompatible(PCGPortType a, PCGPortType b)

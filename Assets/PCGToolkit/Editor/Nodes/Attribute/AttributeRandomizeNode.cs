@@ -22,11 +22,20 @@ namespace PCGToolkit.Nodes.Attribute
             new PCGParamSchema("name", PCGPortDirection.Input, PCGPortType.String,
                 "Name", "属性名称", "Cd"),
             new PCGParamSchema("class", PCGPortDirection.Input, PCGPortType.String,
-                "Class", "属性层级（point/primitive）", "point"),
+                "Class", "属性层级（point/primitive）", "point")
+            {
+                EnumOptions = new[] { "point", "primitive" }
+            },
             new PCGParamSchema("type", PCGPortDirection.Input, PCGPortType.String,
-                "Type", "值类型（float/vector3/color）", "float"),
+                "Type", "值类型（float/vector3/color）", "float")
+            {
+                EnumOptions = new[] { "float", "vector3", "color" }
+            },
             new PCGParamSchema("distribution", PCGPortDirection.Input, PCGPortType.String,
-                "Distribution", "分布（uniform/gaussian）", "uniform"),
+                "Distribution", "分布（uniform/gaussian）", "uniform")
+            {
+                EnumOptions = new[] { "uniform", "gaussian" }
+            },
             new PCGParamSchema("min", PCGPortDirection.Input, PCGPortType.Float,
                 "Min", "最小值", 0f),
             new PCGParamSchema("max", PCGPortDirection.Input, PCGPortType.Float,

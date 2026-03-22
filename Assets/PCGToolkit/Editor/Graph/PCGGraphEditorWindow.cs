@@ -18,7 +18,12 @@ namespace PCGToolkit.Graph
         private PCGNodeInspectorWindow _inspectorWindow;
         private PCGNodeVisual _lastSelectedNode; // 用于轮询检测选中变化
 
-        // ---- 执行调试相关 ----  
+        // ---- 本地化 ----
+        private Button _langButton;
+        private Button _newButton;
+        private Button _saveButton;
+        private Button _saveAsButton;
+        private Button _loadButton;
         private PCGAsyncGraphExecutor _asyncExecutor;  
         private PCGNodePreviewWindow _previewWindow;  
         private Label _totalTimeLabel;  
@@ -50,6 +55,9 @@ namespace PCGToolkit.Graph
             Undo.undoRedoPerformed += OnUndoRedo;
 
             rootVisualElement.RegisterCallback<KeyDownEvent>(OnGlobalKeyDown);
+
+            // 迭代四：注册本地化变更回调
+            PCGToolkit.Core.PCGLocalization.OnLanguageChanged += RefreshToolbarLabels;
         }
 
         private void Update()
@@ -79,6 +87,9 @@ namespace PCGToolkit.Graph
             
             // 注销全局键盘事件回调
             rootVisualElement.UnregisterCallback<KeyDownEvent>(OnGlobalKeyDown);
+
+            // 迭代四：注销本地化回调
+            PCGToolkit.Core.PCGLocalization.OnLanguageChanged -= RefreshToolbarLabels;
         }
 
         private void ConstructGraphView()  
@@ -205,7 +216,7 @@ namespace PCGToolkit.Graph
             {  
                 graphView.ClearAllHighlights();  
                 UpdateTotalTimeLabel(totalMs);  
-                UpdateExecutionStateLabel("Completed");  
+                UpdateExecutionStateLabel(PCGToolkit.Core.PCGLocalization.Get("state.completed"));  
                 SetToolbarButtonsEnabled(true);
                 _progressBar.value = 100f;
                 Debug.Log($"PCG Graph execution completed. Total: {totalMs:F1}ms");  
@@ -248,35 +259,36 @@ namespace PCGToolkit.Graph
   
         private void GenerateToolbar()  
         {  
-            var toolbar = new Toolbar();  
+            var toolbar = new Toolbar();
+            var L = PCGToolkit.Core.PCGLocalization.Get;
   
             // ---- 文件操作按钮 ----  
-            var newButton = new Button(() => NewGraph()) { text = "New" };  
-            toolbar.Add(newButton);  
+            _newButton = new Button(() => NewGraph()) { text = L("btn.new") };  
+            toolbar.Add(_newButton);  
   
-            var saveButton = new Button(() => SaveGraph()) { text = "Save" };  
-            toolbar.Add(saveButton);  
+            _saveButton = new Button(() => SaveGraph()) { text = L("btn.save") };  
+            toolbar.Add(_saveButton);  
   
             // 迭代一：新增 Save As 按钮
-            var saveAsButton = new Button(() => SaveAsGraph()) { text = "Save As" };  
-            toolbar.Add(saveAsButton);
+            _saveAsButton = new Button(() => SaveAsGraph()) { text = L("btn.saveas") };  
+            toolbar.Add(_saveAsButton);
   
-            var loadButton = new Button(() => LoadGraph()) { text = "Load" };  
-            toolbar.Add(loadButton);  
+            _loadButton = new Button(() => LoadGraph()) { text = L("btn.load") };  
+            toolbar.Add(_loadButton);  
   
             // ---- 分隔 ----  
             toolbar.Add(new ToolbarSpacer());  
   
             // ---- 执行按钮 ----  
-            _executeButton = new Button(() => OnExecuteClicked()) { text = "Execute" };  
+            _executeButton = new Button(() => OnExecuteClicked()) { text = L("btn.execute") };  
             _executeButton.style.backgroundColor = new StyleColor(new Color(0.2f, 0.5f, 0.2f));  
             toolbar.Add(_executeButton);  
   
-            _runToSelectedButton = new Button(() => OnRunToSelectedClicked()) { text = "Run To Selected" };  
+            _runToSelectedButton = new Button(() => OnRunToSelectedClicked()) { text = L("btn.runToSelected") };  
             _runToSelectedButton.style.backgroundColor = new StyleColor(new Color(0.4f, 0.4f, 0.15f));  
             toolbar.Add(_runToSelectedButton);  
   
-            _stopButton = new Button(() => OnStopClicked()) { text = "Stop" };  
+            _stopButton = new Button(() => OnStopClicked()) { text = L("btn.stop") };  
             _stopButton.style.backgroundColor = new StyleColor(new Color(0.5f, 0.2f, 0.2f));  
             toolbar.Add(_stopButton);  
   
@@ -284,7 +296,7 @@ namespace PCGToolkit.Graph
             toolbar.Add(new ToolbarSpacer());  
   
             // ---- 状态标签 ----  
-            _executionStateLabel = new Label("Idle")  
+            _executionStateLabel = new Label(L("state.idle"))  
             {  
                 style =  
                 {  
@@ -305,10 +317,22 @@ namespace PCGToolkit.Graph
             // Inspector 按钮
             var inspectorButton = new Button(ToggleInspectorWindow)
             {
-                text = "Inspector",
+                text = L("btn.inspector"),
                 tooltip = "Open the Node Inspector panel"
             };
             toolbar.Add(inspectorButton);
+
+            // 迭代四：语言切换按钮
+            _langButton = new Button(() =>
+            {
+                PCGToolkit.Core.PCGLocalization.ToggleLanguage();
+            })
+            {
+                text = L("btn.lang"),
+                tooltip = "Switch language / 切换语言"
+            };
+            _langButton.style.marginLeft = 4;
+            toolbar.Add(_langButton);
 
             // ---- 弹性空间 ----  
             var spacer = new VisualElement();  
@@ -316,7 +340,7 @@ namespace PCGToolkit.Graph
             toolbar.Add(spacer);  
   
             // ---- 总时长标签（右侧） ----  
-            _totalTimeLabel = new Label("Total: --")  
+            _totalTimeLabel = new Label(L("total.label"))  
             {  
                 style =  
                 {  
@@ -345,6 +369,21 @@ namespace PCGToolkit.Graph
             rootVisualElement.Add(toolbar);  
         }
         
+        // ---- 迭代四：本地化刷新 ----
+
+        private void RefreshToolbarLabels()
+        {
+            var L = PCGToolkit.Core.PCGLocalization.Get;
+            if (_newButton != null) _newButton.text = L("btn.new");
+            if (_saveButton != null) _saveButton.text = L("btn.save");
+            if (_saveAsButton != null) _saveAsButton.text = L("btn.saveas");
+            if (_loadButton != null) _loadButton.text = L("btn.load");
+            if (_executeButton != null) _executeButton.text = L("btn.execute");
+            if (_runToSelectedButton != null) _runToSelectedButton.text = L("btn.runToSelected");
+            if (_stopButton != null) _stopButton.text = L("btn.stop");
+            if (_langButton != null) _langButton.text = L("btn.lang");
+        }
+
         // ---- 迭代一：键盘快捷键 ----
         
         private void OnGlobalKeyDown(KeyDownEvent evt)

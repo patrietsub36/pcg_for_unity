@@ -181,47 +181,18 @@ namespace PCGToolkit.Nodes.Geometry
         {
             var result = new PCGGeometry();
 
-            // 首先添加未挤出的面（保持原始顶点共享）
-            var usedOriginalPoints = new HashSet<int>();
-            foreach (int primIdx in primsToExtrude)
-            {
-                foreach (int vi in geo.Primitives[primIdx])
-                    usedOriginalPoints.Add(vi);
-            }
-
-            // 复制未被挤出面使用的原始顶点
-            var originalIndexMap = new Dictionary<int, int>();
+            // 复制所有原始顶点到 result（保持 1:1 索引映射）
             for (int i = 0; i < geo.Points.Count; i++)
-            {
-                if (!usedOriginalPoints.Contains(i))
-                {
-                    originalIndexMap[i] = result.Points.Count;
-                    result.Points.Add(geo.Points[i]);
-                }
-            }
+                result.Points.Add(geo.Points[i]);
 
-            // 添加未挤出的面（重映射索引）
+            // 添加未挤出的面（直接使用原始索引，无需重映射）
             for (int i = 0; i < geo.Primitives.Count; i++)
             {
                 if (!primsToExtrude.Contains(i))
-                {
-                    var prim = geo.Primitives[i];
-                    var newPrim = new int[prim.Length];
-                    bool valid = true;
-                    for (int j = 0; j < prim.Length; j++)
-                    {
-                        if (!originalIndexMap.TryGetValue(prim[j], out newPrim[j]))
-                        {
-                            valid = false;
-                            break;
-                        }
-                    }
-                    if (valid)
-                        result.Primitives.Add(newPrim);
-                }
+                    result.Primitives.Add((int[])geo.Primitives[i].Clone());
             }
 
-            // 对每个挤出面进行独立化处理并挤出
+            // 对每个挤出面创建独立的顶点副本并挤出
             foreach (int primIdx in primsToExtrude)
             {
                 var prim = geo.Primitives[primIdx];
@@ -233,7 +204,7 @@ namespace PCGToolkit.Nodes.Geometry
                 foreach (int idx in prim) center += geo.Points[idx];
                 center /= prim.Length;
 
-                // 为这个面创建独立的顶点
+                // 为这个面创建独立的顶点副本
                 int[] baseVertices = new int[prim.Length];
                 for (int i = 0; i < prim.Length; i++)
                 {
@@ -283,9 +254,7 @@ namespace PCGToolkit.Nodes.Geometry
                 {
                     int[] frontPrim = new int[prim.Length];
                     for (int i = 0; i < prim.Length; i++)
-                    {
                         frontPrim[i] = prevLayerVertices[i];
-                    }
                     result.Primitives.Add(frontPrim);
                 }
             }

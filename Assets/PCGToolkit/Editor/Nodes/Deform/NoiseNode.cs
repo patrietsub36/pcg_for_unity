@@ -21,7 +21,10 @@ namespace PCGToolkit.Nodes.Deform
             new PCGParamSchema("input", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Input", "输入几何体", null, required: true),
             new PCGParamSchema("noiseType", PCGPortDirection.Input, PCGPortType.String,
-                "Noise Type", "噪声类型（perlin/worley/curl）", "perlin"),
+                "Noise Type", "噪声类型（perlin/worley/curl）", "perlin")
+            {
+                EnumOptions = new[] { "perlin", "worley", "curl" }
+            },
             new PCGParamSchema("amplitude", PCGPortDirection.Input, PCGPortType.Float,
                 "Amplitude", "噪声振幅", 0.5f),
             new PCGParamSchema("frequency", PCGPortDirection.Input, PCGPortType.Float,
@@ -31,7 +34,10 @@ namespace PCGToolkit.Nodes.Deform
             new PCGParamSchema("offset", PCGPortDirection.Input, PCGPortType.Vector3,
                 "Offset", "噪声空间偏移", Vector3.zero),
             new PCGParamSchema("direction", PCGPortDirection.Input, PCGPortType.String,
-                "Direction", "变形方向（normal/axis/3d）", "normal"),
+                "Direction", "变形方向（normal/axis/3d）", "normal")
+            {
+                EnumOptions = new[] { "normal", "axis", "3d" }
+            },
             new PCGParamSchema("axis", PCGPortDirection.Input, PCGPortType.Vector3,
                 "Axis", "axis 模式下的变形轴向", Vector3.up),
             new PCGParamSchema("group", PCGPortDirection.Input, PCGPortType.String,

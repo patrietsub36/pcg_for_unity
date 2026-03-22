@@ -31,7 +31,10 @@ namespace PCGToolkit.Nodes.Deform
             new PCGParamSchema("seed", PCGPortDirection.Input, PCGPortType.Int,
                 "Seed", "随机种子", 0),
             new PCGParamSchema("noiseType", PCGPortDirection.Input, PCGPortType.String,
-                "Noise Type", "噪声类型（perlin/simplex/value）", "perlin"),
+                "Noise Type", "噪声类型（perlin/simplex/value）", "perlin")
+            {
+                EnumOptions = new[] { "perlin", "simplex", "value" }
+            },
         };
 
         public override PCGParamSchema[] Outputs => new[]

@@ -24,11 +24,17 @@ namespace PCGToolkit.Nodes.Utility
             new PCGParamSchema("groupB", PCGPortDirection.Input, PCGPortType.String,
                 "Group B", "第二个分组名", ""),
             new PCGParamSchema("operation", PCGPortDirection.Input, PCGPortType.String,
-                "Operation", "集合运算（union/intersect/subtract）", "union"),
+                "Operation", "集合运算（union/intersect/subtract）", "union")
+            {
+                EnumOptions = new[] { "union", "intersect", "subtract" }
+            },
             new PCGParamSchema("resultGroup", PCGPortDirection.Input, PCGPortType.String,
                 "Result Group", "结果分组名", "combined"),
             new PCGParamSchema("groupType", PCGPortDirection.Input, PCGPortType.String,
-                "Group Type", "分组类型（point/prim）", "prim"),
+                "Group Type", "分组类型（point/prim）", "prim")
+            {
+                EnumOptions = new[] { "point", "prim" }
+            },
         };
 
         public override PCGParamSchema[] Outputs => new[]

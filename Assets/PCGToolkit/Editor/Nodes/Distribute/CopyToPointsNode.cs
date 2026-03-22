@@ -119,7 +119,7 @@ namespace PCGToolkit.Nodes.Distribute
                 // 从属性读取缩放
                 if (scaleAttr != null && pointIdx < scaleAttr.Values.Count)
                 {
-                    scale = (float)scaleAttr.Values[pointIdx];
+                    scale = System.Convert.ToSingle(scaleAttr.Values[pointIdx]);
                 }
 
                 // 计算顶点偏移
@@ -154,18 +154,22 @@ namespace PCGToolkit.Nodes.Distribute
                 for (int i = 0; i < source.Points.Count; i++)
                     copynumAttr.Values.Add((float)pointIdx);
 
-                // 传递目标点的属性到副本（写入 DetailAttribs）
+                // 传递目标点的属性到副本的所有点（写入 PointAttribs）
                 foreach (var (attrName, attr) in transferAttrData)
                 {
                     if (pointIdx < attr.Values.Count)
                     {
-                        var detailAttr = result.DetailAttribs.GetAttribute(attrName);
-                        if (detailAttr == null)
+                        var pointAttr = result.PointAttribs.GetAttribute(attrName);
+                        if (pointAttr == null)
                         {
-                            detailAttr = result.DetailAttribs.CreateAttribute(attrName, attr.Type, attr.DefaultValue);
+                            pointAttr = result.PointAttribs.CreateAttribute(attrName, attr.Type, attr.DefaultValue);
+                            // 补齐前面已添加的点的默认值
+                            for (int j = 0; j < vertexOffset; j++)
+                                pointAttr.Values.Add(attr.DefaultValue);
                         }
-                        // 为这个副本添加一个 detail 属性值
-                        detailAttr.Values.Add(attr.Values[pointIdx]);
+                        // 为这个副本的每个点写入对应目标点的属性值
+                        for (int i = 0; i < source.Points.Count; i++)
+                            pointAttr.Values.Add(attr.Values[pointIdx]);
                     }
                 }
             }

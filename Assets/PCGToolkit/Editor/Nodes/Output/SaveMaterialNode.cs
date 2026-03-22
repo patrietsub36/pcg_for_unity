@@ -33,7 +33,10 @@ namespace PCGToolkit.Nodes.Output
             new PCGParamSchema("emissionColor", PCGPortDirection.Input, PCGPortType.Color,
                 "Emission Color", "自发光颜色（黑色=无自发光）", Color.black),
             new PCGParamSchema("renderMode", PCGPortDirection.Input, PCGPortType.String,
-                "Render Mode", "渲染模式（opaque/cutout/transparent/fade）", "opaque"),
+                "Render Mode", "渲染模式（opaque/cutout/transparent/fade）", "opaque")
+            {
+                EnumOptions = new[] { "opaque", "cutout", "transparent", "fade" }
+            },
         };
 
         public override PCGParamSchema[] Outputs => new[]

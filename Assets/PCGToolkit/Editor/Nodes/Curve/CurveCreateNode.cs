@@ -17,7 +17,10 @@ namespace PCGToolkit.Nodes.Curve
         public override PCGParamSchema[] Inputs => new[]
         {
             new PCGParamSchema("curveType", PCGPortDirection.Input, PCGPortType.String,
-                "Curve Type", "曲线类型（bezier/polyline）", "polyline"),
+                "Curve Type", "曲线类型（bezier/polyline）", "polyline")
+            {
+                EnumOptions = new[] { "bezier", "polyline" }
+            },
             new PCGParamSchema("closed", PCGPortDirection.Input, PCGPortType.Bool,
                 "Closed", "是否闭合曲线", false),
             new PCGParamSchema("pointCount", PCGPortDirection.Input, PCGPortType.Int,
@@ -27,7 +30,10 @@ namespace PCGToolkit.Nodes.Curve
             new PCGParamSchema("height", PCGPortDirection.Input, PCGPortType.Float,
                 "Height", "Y轴高度", 0.0f),
             new PCGParamSchema("shape", PCGPortDirection.Input, PCGPortType.String,
-                "Shape", "形状（circle/line/spiral/random）", "circle"),
+                "Shape", "形状（circle/line/spiral/random）", "circle")
+            {
+                EnumOptions = new[] { "circle", "line", "spiral", "random" }
+            },
             new PCGParamSchema("seed", PCGPortDirection.Input, PCGPortType.Int,
                 "Seed", "随机种子（shape=random时）", 0),
         };

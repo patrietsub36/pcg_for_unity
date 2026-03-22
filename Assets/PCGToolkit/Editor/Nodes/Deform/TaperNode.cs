@@ -23,7 +23,10 @@ namespace PCGToolkit.Nodes.Deform
             new PCGParamSchema("scaleEnd", PCGPortDirection.Input, PCGPortType.Float,
                 "Scale End", "结束端缩放", 0.0f),
             new PCGParamSchema("axis", PCGPortDirection.Input, PCGPortType.String,
-                "Axis", "锥化轴（x/y/z）", "y"),
+                "Axis", "锥化轴（x/y/z）", "y")
+            {
+                EnumOptions = new[] { "x", "y", "z" }
+            },
             new PCGParamSchema("origin", PCGPortDirection.Input, PCGPortType.Vector3,
                 "Origin", "锥化中心", Vector3.zero),
         };

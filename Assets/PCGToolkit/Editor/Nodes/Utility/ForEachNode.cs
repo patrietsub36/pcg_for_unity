@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using PCGToolkit.Core;
 using PCGToolkit.Graph;
 using UnityEngine;
@@ -29,7 +28,10 @@ namespace PCGToolkit.Nodes.Utility
             new PCGParamSchema("subGraphPath", PCGPortDirection.Input, PCGPortType.String,
                 "SubGraph Path", "子图资源路径（Assets/...）", ""),
             new PCGParamSchema("mode", PCGPortDirection.Input, PCGPortType.String,
-                "Mode", "迭代模式（byGroup/byPiece/count）", "byGroup"),
+                "Mode", "迭代模式（byGroup/byPiece/count）", "byGroup")
+            {
+                EnumOptions = new[] { "byGroup", "byPiece", "count" }
+            },
             new PCGParamSchema("iterations", PCGPortDirection.Input, PCGPortType.Int,
                 "Iterations", "count 模式下的迭代次数", 1),
             new PCGParamSchema("feedback", PCGPortDirection.Input, PCGPortType.Bool,
@@ -109,7 +111,7 @@ namespace PCGToolkit.Nodes.Utility
             int iteration = 0;
             foreach (var kvp in geo.PrimGroups)
             {
-                var piece = ExtractPrimGroup(geo, kvp.Key, kvp.Value);
+                var piece = PCGGeometryUtils.ExtractPrimGroup(geo, kvp.Value);
                 float value = GetPieceValue(piece, valueAttrib);
                 var result = ExecuteSubGraph(subGraph, piece, ctx, iteration, kvp.Key, totalIterations, value);
                 if (result != null) results.Add(result);
@@ -121,7 +123,7 @@ namespace PCGToolkit.Nodes.Utility
         private List<PCGGeometry> IterateByPiece(PCGGeometry geo, PCGGraphData subGraph, string valueAttrib, PCGContext ctx)
         {
             var results = new List<PCGGeometry>();
-            var pieces = SplitByConnectivity(geo);
+            var pieces = PCGGeometryUtils.SplitByConnectivity(geo);
             int totalIterations = pieces.Count;
 
             for (int i = 0; i < pieces.Count; i++)
@@ -191,6 +193,9 @@ namespace PCGToolkit.Nodes.Utility
         {
             var subExecutor = new PCGGraphExecutor(subGraph);
 
+            // 保存旧值，防止嵌套 ForEach 污染外层变量
+            var savedVars = new Dictionary<string, object>(ctx.GlobalVariables);
+
             ctx.GlobalVariables["iteration"] = (float)iteration;
             ctx.GlobalVariables["groupname"] = groupName;
             ctx.GlobalVariables["numiterations"] = (float)totalIterations;
@@ -204,110 +209,18 @@ namespace PCGToolkit.Nodes.Utility
             catch (System.Exception e)
             {
                 ctx.LogError($"ForEach iteration {iteration}: {e.Message}");
+                // 恢复旧值
+                foreach (var kvp in savedVars) ctx.GlobalVariables[kvp.Key] = kvp.Value;
                 return null;
             }
+
+            // 恢复旧值
+            foreach (var kvp in savedVars) ctx.GlobalVariables[kvp.Key] = kvp.Value;
 
             if (ctx.TryGetExternalOutput("geometry", out var output))
                 return output;
 
             return null;
-        }
-
-        private PCGGeometry ExtractPrimGroup(PCGGeometry source, string groupName, HashSet<int> primIndices)
-        {
-            var result = new PCGGeometry();
-
-            // 收集被引用的点索引
-            var usedPoints = new HashSet<int>();
-            foreach (int pi in primIndices)
-            {
-                if (pi < source.Primitives.Count)
-                {
-                    foreach (int vi in source.Primitives[pi])
-                        usedPoints.Add(vi);
-                }
-            }
-
-            // 建立旧索引 -> 新索引映射
-            var indexMap = new Dictionary<int, int>();
-            foreach (int oldIdx in usedPoints.OrderBy(x => x))
-            {
-                indexMap[oldIdx] = result.Points.Count;
-                result.Points.Add(source.Points[oldIdx]);
-            }
-
-            // 复制面并重映射索引
-            foreach (int pi in primIndices)
-            {
-                if (pi >= source.Primitives.Count) continue;
-                var prim = source.Primitives[pi];
-                var newPrim = new int[prim.Length];
-                for (int i = 0; i < prim.Length; i++)
-                    newPrim[i] = indexMap[prim[i]];
-                result.Primitives.Add(newPrim);
-            }
-
-            // 复制相关点属性
-            foreach (var attr in source.PointAttribs.GetAllAttributes())
-            {
-                var newAttr = result.PointAttribs.CreateAttribute(attr.Name, attr.Type, attr.DefaultValue);
-                foreach (int oldIdx in usedPoints.OrderBy(x => x))
-                {
-                    if (oldIdx < attr.Values.Count)
-                        newAttr.Values.Add(attr.Values[oldIdx]);
-                    else
-                        newAttr.Values.Add(attr.DefaultValue);
-                }
-            }
-
-            return result;
-        }
-
-        private List<PCGGeometry> SplitByConnectivity(PCGGeometry geo)
-        {
-            int pointCount = geo.Points.Count;
-            int[] componentId = new int[pointCount];
-            for (int i = 0; i < pointCount; i++) componentId[i] = i;
-
-            // Union-Find
-            int Find(int x) {
-                while (componentId[x] != x) {
-                    componentId[x] = componentId[componentId[x]];
-                    x = componentId[x];
-                }
-                return x;
-            }
-            void Union(int a, int b) {
-                a = Find(a); b = Find(b);
-                if (a != b) componentId[a] = b;
-            }
-
-            foreach (var prim in geo.Primitives)
-            {
-                if (prim.Length == 0) continue;
-                for (int i = 1; i < prim.Length; i++)
-                    Union(prim[0], prim[i]);
-            }
-
-            // 按连通分量分组
-            var groups = new Dictionary<int, List<int>>();
-            for (int pi = 0; pi < geo.Primitives.Count; pi++)
-            {
-                var prim = geo.Primitives[pi];
-                if (prim.Length == 0) continue;
-                int root = Find(prim[0]);
-                if (!groups.ContainsKey(root))
-                    groups[root] = new List<int>();
-                groups[root].Add(pi);
-            }
-
-            var results = new List<PCGGeometry>();
-            foreach (var kvp in groups)
-            {
-                var primSet = new HashSet<int>(kvp.Value);
-                results.Add(ExtractPrimGroup(geo, "", primSet));
-            }
-            return results;
         }
 
         private PCGGeometry MergeResults(List<PCGGeometry> pieces)

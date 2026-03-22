@@ -24,9 +24,15 @@ namespace PCGToolkit.Nodes.Geometry
             new PCGParamSchema("input", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Input", "输入几何体", null, required: true),
             new PCGParamSchema("mode", PCGPortDirection.Input, PCGPortType.String,
-                "Mode", "操作模式（unique/consolidate/computeNormals）", "unique"),
+                "Mode", "操作模式（unique/consolidate/computeNormals）", "unique")
+            {
+                EnumOptions = new[] { "unique", "consolidate", "computeNormals" }
+            },
             new PCGParamSchema("normalMode", PCGPortDirection.Input, PCGPortType.String,
-                "Normal Mode", "法线模式（flat/smooth），仅 computeNormals 模式使用", "flat"),
+                "Normal Mode", "法线模式（flat/smooth），仅 computeNormals 模式使用", "flat")
+            {
+                EnumOptions = new[] { "flat", "smooth" }
+            },
             new PCGParamSchema("tolerance", PCGPortDirection.Input, PCGPortType.Float,
                 "Tolerance", "consolidate 模式的合并距离阈值", 0.0001f),
         };

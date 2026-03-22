@@ -281,6 +281,78 @@ namespace PCGToolkit.Graph
                 
                 _paramContainer.Add(paramFoldout);
             }
+
+            // ---- 预设操作区 (A3) ----
+            BuildPresetSection(nodeVisual);
+        }
+
+        // ---- 预设操作 (A3) ----
+
+        private void BuildPresetSection(PCGNodeVisual nodeVisual)
+        {
+            string nodeType = nodeVisual.PCGNode.Name;
+
+            var foldout = new Foldout { text = "Presets", value = false };
+            foldout.style.marginTop = 4;
+            foldout.style.marginBottom = 4;
+
+            // Save Preset 行
+            var saveRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginBottom = 4 } };
+            var presetNameField = new TextField { placeholderText = "Preset name…", style = { flexGrow = 1 } };
+            var saveBtn = new Button(() =>
+            {
+                string name = presetNameField.value.Trim();
+                if (string.IsNullOrEmpty(name)) name = "Default";
+                PCGPresetManager.SavePreset(nodeType, name, nodeVisual.GetPortDefaultValues());
+                RefreshPresetList(foldout, nodeVisual, nodeType);
+            }) { text = "Save" };
+            saveRow.Add(presetNameField);
+            saveRow.Add(saveBtn);
+            foldout.Add(saveRow);
+
+            // 已有预设列表
+            RefreshPresetList(foldout, nodeVisual, nodeType);
+
+            _paramContainer.Add(foldout);
+        }
+
+        private void RefreshPresetList(Foldout foldout, PCGNodeVisual nodeVisual, string nodeType)
+        {
+            // 移除所有现有的预设按钮（保留前两个子元素：saveRow）
+            while (foldout.childCount > 1)
+                foldout.RemoveAt(foldout.childCount - 1);
+
+            var presets = PCGPresetManager.GetPresetsForNode(nodeType);
+            if (presets == null || presets.Length == 0)
+            {
+                foldout.Add(new Label("No saved presets")
+                {
+                    style = { fontSize = 10, color = new StyleColor(new Color(0.5f, 0.5f, 0.5f)) }
+                });
+                return;
+            }
+
+            foreach (var filePath in presets)
+            {
+                string presetName = PCGPresetManager.GetPresetName(filePath);
+                var row = new VisualElement { style = { flexDirection = FlexDirection.Row, marginBottom = 2 } };
+                var nameLabel = new Label(presetName) { style = { flexGrow = 1, fontSize = 11 } };
+                var loadBtn = new Button(() =>
+                {
+                    var data = PCGPresetManager.LoadPreset(filePath);
+                    if (data != null)
+                    {
+                        nodeVisual.SetPortDefaultValues(data);
+                        _graphView?.NotifyGraphChanged();
+                        // 刷新 Inspector 以显示新值
+                        _currentNode = null;
+                        RebuildForNode(nodeVisual);
+                    }
+                }) { text = "Load", style = { width = 50 } };
+                row.Add(nameLabel);
+                row.Add(loadBtn);
+                foldout.Add(row);
+            }
         }
 
         /// <summary>

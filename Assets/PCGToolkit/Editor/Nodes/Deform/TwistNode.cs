@@ -21,7 +21,10 @@ namespace PCGToolkit.Nodes.Deform
             new PCGParamSchema("angle", PCGPortDirection.Input, PCGPortType.Float,
                 "Angle", "总扭转角度", 180f),
             new PCGParamSchema("axis", PCGPortDirection.Input, PCGPortType.String,
-                "Axis", "扭转轴（x/y/z）", "y"),
+                "Axis", "扭转轴（x/y/z）", "y")
+            {
+                EnumOptions = new[] { "x", "y", "z" }
+            },
             new PCGParamSchema("origin", PCGPortDirection.Input, PCGPortType.Vector3,
                 "Origin", "扭转中心", Vector3.zero),
         };

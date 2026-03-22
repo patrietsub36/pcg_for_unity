@@ -19,7 +19,10 @@ namespace PCGToolkit.Nodes.Curve
             new PCGParamSchema("input", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Input", "输入曲线/多段线", null, required: true),
             new PCGParamSchema("method", PCGPortDirection.Input, PCGPortType.String,
-                "Method", "采样方式（length/count）", "length"),
+                "Method", "采样方式（length/count）", "length")
+            {
+                EnumOptions = new[] { "length", "count" }
+            },
             new PCGParamSchema("length", PCGPortDirection.Input, PCGPortType.Float,
                 "Length", "每段长度（method=length 时）", 0.1f),
             new PCGParamSchema("segments", PCGPortDirection.Input, PCGPortType.Int,

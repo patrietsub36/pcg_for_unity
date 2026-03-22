@@ -47,11 +47,7 @@ namespace PCGToolkit.Nodes.Output
             if (geo == null || geo.Points.Count == 0)
             {
                 ctx.LogWarning("SavePrefab: 输入几何体为空，跳过保存");
-                return new Dictionary<string, PCGGeometry>
-                {
-                    { "geometry", geo },
-                    { "prefabPath", null }
-                };
+                return SingleOutput("geometry", geo ?? new PCGGeometry());
             }
 
             string savePath = GetParamString(parameters, "assetPath", "Assets/PCGOutput/output.prefab");

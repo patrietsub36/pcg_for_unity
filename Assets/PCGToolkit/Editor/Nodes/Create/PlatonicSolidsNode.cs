@@ -18,7 +18,10 @@ namespace PCGToolkit.Nodes.Create
         public override PCGParamSchema[] Inputs => new[]
         {
             new PCGParamSchema("type", PCGPortDirection.Input, PCGPortType.String,
-                "Type", "多面体类型（tetrahedron/octahedron/icosahedron/dodecahedron）", "icosahedron"),
+                "Type", "多面体类型（tetrahedron/octahedron/icosahedron/dodecahedron）", "icosahedron")
+            {
+                EnumOptions = new[] { "tetrahedron", "octahedron", "icosahedron", "dodecahedron" }
+            },
             new PCGParamSchema("radius", PCGPortDirection.Input, PCGPortType.Float,
                 "Radius", "外接球半径", 1f),
             new PCGParamSchema("center", PCGPortDirection.Input, PCGPortType.Vector3,

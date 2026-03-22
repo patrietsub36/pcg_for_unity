@@ -21,7 +21,10 @@ namespace PCGToolkit.Nodes.Deform
             new PCGParamSchema("angle", PCGPortDirection.Input, PCGPortType.Float,
                 "Angle", "弯曲角度", 90f),
             new PCGParamSchema("upAxis", PCGPortDirection.Input, PCGPortType.String,
-                "Up Axis", "弯曲轴向（x/y/z）", "y"),
+                "Up Axis", "弯曲轴向（x/y/z）", "y")
+            {
+                EnumOptions = new[] { "x", "y", "z" }
+            },
             new PCGParamSchema("captureOrigin", PCGPortDirection.Input, PCGPortType.Vector3,
                 "Capture Origin", "弯曲起始点", Vector3.zero),
             new PCGParamSchema("captureLength", PCGPortDirection.Input, PCGPortType.Float,

@@ -21,7 +21,10 @@ namespace PCGToolkit.Nodes.Distribute
             new PCGParamSchema("input", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Input", "输入几何体", null, required: true),
             new PCGParamSchema("mode", PCGPortDirection.Input, PCGPortType.String,
-                "Mode", "阵列模式（linear/radial）", "linear"),
+                "Mode", "阵列模式（linear/radial）", "linear")
+            {
+                EnumOptions = new[] { "linear", "radial" }
+            },
             new PCGParamSchema("count", PCGPortDirection.Input, PCGPortType.Int,
                 "Count", "复制数量（含原始）", 5),
             new PCGParamSchema("offset", PCGPortDirection.Input, PCGPortType.Vector3,

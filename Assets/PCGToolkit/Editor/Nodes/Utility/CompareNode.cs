@@ -21,7 +21,10 @@ namespace PCGToolkit.Nodes.Utility
             new PCGParamSchema("b", PCGPortDirection.Input, PCGPortType.Float,
                 "B", "第二个值", 0f),
             new PCGParamSchema("operation", PCGPortDirection.Input, PCGPortType.String,
-                "Operation", "比较运算（equal/notEqual/greater/less/greaterEqual/lessEqual）", "equal"),
+                "Operation", "比较运算（equal/notEqual/greater/less/greaterEqual/lessEqual）", "equal")
+            {
+                EnumOptions = new[] { "equal", "notEqual", "greater", "less", "greaterEqual", "lessEqual" }
+            },
             new PCGParamSchema("tolerance", PCGPortDirection.Input, PCGPortType.Float,
                 "Tolerance", "equal/notEqual 的容差", 0.0001f),
         };

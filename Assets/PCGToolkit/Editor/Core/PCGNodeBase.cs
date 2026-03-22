@@ -21,6 +21,63 @@ namespace PCGToolkit.Core
             Dictionary<string, PCGGeometry> inputGeometries,
             Dictionary<string, object> parameters);
 
+        // ---- 参数验证框架 (D1) ----
+
+        /// <summary>
+        /// 根据 Inputs 中定义的 Schema（Required、EnumOptions、Min/Max）自动验证参数。
+        /// 验证失败时通过 ctx.LogWarning 输出警告，不会中断执行。
+        /// 返回 false 表示有必填 Geometry 输入缺失（可用于提前返回）。
+        /// </summary>
+        protected bool ValidateInputs(
+            PCGContext ctx,
+            Dictionary<string, PCGGeometry> inputGeometries,
+            Dictionary<string, object> parameters)
+        {
+            bool valid = true;
+            foreach (var schema in Inputs)
+            {
+                if (schema.Direction != PCGPortDirection.Input) continue;
+
+                // 必填 Geometry 端口
+                if (schema.Required && schema.PortType == PCGPortType.Geometry)
+                {
+                    if (!inputGeometries.TryGetValue(schema.Name, out var geo) || geo == null)
+                    {
+                        ctx.LogWarning($"{DisplayName}: 必填输入 '{schema.Name}' 未连接");
+                        valid = false;
+                    }
+                }
+
+                if (!parameters.TryGetValue(schema.Name, out var val)) continue;
+
+                // EnumOptions 验证
+                if (schema.EnumOptions != null && schema.EnumOptions.Length > 0 && val is string strVal)
+                {
+                    bool found = false;
+                    foreach (var opt in schema.EnumOptions)
+                        if (opt == strVal) { found = true; break; }
+                    if (!found)
+                        ctx.LogWarning($"{DisplayName}: 参数 '{schema.Name}' 值 '{strVal}' 不在枚举选项中");
+                }
+
+                // Float/Int 范围验证
+                if (schema.PortType == PCGPortType.Float || schema.PortType == PCGPortType.Int)
+                {
+                    float fv = 0f;
+                    if (val is float f) fv = f;
+                    else if (val is int i) fv = i;
+                    else if (val is double d) fv = (float)d;
+                    else continue;
+
+                    if (schema.Min != float.MinValue && fv < schema.Min)
+                        ctx.LogWarning($"{DisplayName}: 参数 '{schema.Name}' 值 {fv} 小于最小值 {schema.Min}");
+                    if (schema.Max != float.MaxValue && fv > schema.Max)
+                        ctx.LogWarning($"{DisplayName}: 参数 '{schema.Name}' 值 {fv} 大于最大值 {schema.Max}");
+                }
+            }
+            return valid;
+        }
+
         // ---- 辅助方法 ----
 
         /// <summary>

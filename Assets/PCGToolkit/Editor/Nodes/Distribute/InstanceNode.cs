@@ -29,6 +29,14 @@ namespace PCGToolkit.Nodes.Distribute
                 "Instance 2", "实例几何体 2（index=2）", null, required: false),
             new PCGParamSchema("instance3", PCGPortDirection.Input, PCGPortType.Geometry,
                 "Instance 3", "实例几何体 3（index=3）", null, required: false),
+            new PCGParamSchema("instance4", PCGPortDirection.Input, PCGPortType.Geometry,
+                "Instance 4", "实例几何体 4（index=4）", null, required: false),
+            new PCGParamSchema("instance5", PCGPortDirection.Input, PCGPortType.Geometry,
+                "Instance 5", "实例几何体 5（index=5）", null, required: false),
+            new PCGParamSchema("instance6", PCGPortDirection.Input, PCGPortType.Geometry,
+                "Instance 6", "实例几何体 6（index=6）", null, required: false),
+            new PCGParamSchema("instance7", PCGPortDirection.Input, PCGPortType.Geometry,
+                "Instance 7", "实例几何体 7（index=7）", null, required: false),
             new PCGParamSchema("instanceAttrib", PCGPortDirection.Input, PCGPortType.String,
                 "Instance Attribute", "选择实例的属性名", "instance"),
             new PCGParamSchema("usePointOrient", PCGPortDirection.Input, PCGPortType.Bool,
@@ -167,7 +175,8 @@ namespace PCGToolkit.Nodes.Distribute
                 if (instanceIndexAttr != null && pointIdx < instanceIndexAttr.Values.Count)
                 {
                     var val = instanceIndexAttr.Values[pointIdx];
-                    instanceIndex = Mathf.Clamp(System.Convert.ToInt32(val), 0, MaxInstances - 1);
+                    try { instanceIndex = Mathf.Clamp(System.Convert.ToInt32(val), 0, MaxInstances - 1); }
+                    catch { instanceIndex = 0; }
                 }
 
                 // 获取对应的实例几何体
@@ -203,7 +212,8 @@ namespace PCGToolkit.Nodes.Distribute
                 // 读取缩放
                 if (scaleAttr != null && pointIdx < scaleAttr.Values.Count)
                 {
-                    scale = System.Convert.ToSingle(scaleAttr.Values[pointIdx]);
+                    try { scale = System.Convert.ToSingle(scaleAttr.Values[pointIdx]); }
+                    catch { scale = 1f; }
                 }
 
                 // 复制变换后的实例几何体

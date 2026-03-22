@@ -21,7 +21,10 @@ namespace PCGToolkit.Nodes.Utility
             new PCGParamSchema("value", PCGPortDirection.Input, PCGPortType.Float,
                 "Value", "输入值（0~1）", 0f),
             new PCGParamSchema("mode", PCGPortDirection.Input, PCGPortType.String,
-                "Mode", "插值模式（linear/smooth/step）", "smooth"),
+                "Mode", "插值模式（linear/smooth/step）", "smooth")
+            {
+                EnumOptions = new[] { "linear", "smooth", "step" }
+            },
             new PCGParamSchema("key0Pos", PCGPortDirection.Input, PCGPortType.Float,
                 "Key 0 Position", "关键帧0位置", 0f),
             new PCGParamSchema("key0Val", PCGPortDirection.Input, PCGPortType.Float,
