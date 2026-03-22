@@ -160,10 +160,8 @@ namespace PCGToolkit.Core
         /// </summary>
         protected GameObject GetParamGameObject(PCGContext ctx, Dictionary<string, object> parameters, string name)
         {
-            // 优先从 context.SceneReferences 获取（A7 执行器桥已注入）
             if (ctx.SceneReferences.TryGetValue(name, out var unityObj) && unityObj is GameObject ctxGo)
                 return ctxGo;
-            // 直接参数值
             if (parameters != null && parameters.TryGetValue(name, out var val))
             {
                 if (val is GameObject go) return go;
@@ -171,6 +169,8 @@ namespace PCGToolkit.Core
             }
             return null;
         }
+
+        protected Color GetParamColor(Dictionary<string, object> parameters, string name, Color defaultValue)
         {
             if (parameters != null && parameters.TryGetValue(name, out var val))
             {
