@@ -236,7 +236,7 @@ namespace PCGToolkit.Nodes.Distribute
                 var copynumAttr = result.PointAttribs.GetAttribute("copynum");
                 if (copynumAttr == null)
                 {
-                    copynumAttr = result.PointAttribs.CreateAttribute("copynum", typeof(float), 0f);
+                    copynumAttr = result.PointAttribs.CreateAttribute("copynum", AttribType.Float, 0f);
                     for (int j = 0; j < vertexOffset; j++)
                         copynumAttr.Values.Add(0f);
                 }
@@ -247,7 +247,7 @@ namespace PCGToolkit.Nodes.Distribute
                 var instanceIdxAttr = result.PointAttribs.GetAttribute("instanceindex");
                 if (instanceIdxAttr == null)
                 {
-                    instanceIdxAttr = result.PointAttribs.CreateAttribute("instanceindex", typeof(float), 0f);
+                    instanceIdxAttr = result.PointAttribs.CreateAttribute("instanceindex", AttribType.Float, 0f);
                     for (int j = 0; j < vertexOffset; j++)
                         instanceIdxAttr.Values.Add(0f);
                 }

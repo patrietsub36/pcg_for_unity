@@ -72,7 +72,7 @@ namespace PCGToolkit.Nodes.Geometry
             PCGAttribute materialAttr = geo.PrimAttribs.GetAttribute("material");
             if (materialAttr == null)
             {
-                materialAttr = geo.PrimAttribs.CreateAttribute("material", typeof(string), "");
+                materialAttr = geo.PrimAttribs.CreateAttribute("material", AttribType.String, "");
                 // 初始化所有面为空字符串
                 for (int i = 0; i < geo.Primitives.Count; i++)
                     materialAttr.Values.Add("");
@@ -82,7 +82,7 @@ namespace PCGToolkit.Nodes.Geometry
             PCGAttribute materialIdAttr = geo.PrimAttribs.GetAttribute("materialId");
             if (materialIdAttr == null)
             {
-                materialIdAttr = geo.PrimAttribs.CreateAttribute("materialId", typeof(float), 0f);
+                materialIdAttr = geo.PrimAttribs.CreateAttribute("materialId", AttribType.Float, 0f);
                 for (int i = 0; i < geo.Primitives.Count; i++)
                     materialIdAttr.Values.Add(0f);
             }

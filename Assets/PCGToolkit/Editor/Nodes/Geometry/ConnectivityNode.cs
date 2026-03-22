@@ -104,7 +104,7 @@ namespace PCGToolkit.Nodes.Geometry
             var rootToClass = new Dictionary<int, int>();
             int classCounter = 0;
 
-            var classAttr = geo.PointAttribs.CreateAttribute(attribName, typeof(float), 0f);
+            var classAttr = geo.PointAttribs.CreateAttribute(attribName, AttribType.Float, 0f);
             classAttr.Values.Clear();
 
             for (int i = 0; i < pointCount; i++)
@@ -119,7 +119,7 @@ namespace PCGToolkit.Nodes.Geometry
             }
 
             // 同时为 Prim 创建属性
-            var primClassAttr = geo.PrimAttribs.CreateAttribute(attribName, typeof(float), 0f);
+            var primClassAttr = geo.PrimAttribs.CreateAttribute(attribName, AttribType.Float, 0f);
             primClassAttr.Values.Clear();
 
             foreach (var prim in geo.Primitives)
@@ -204,7 +204,7 @@ namespace PCGToolkit.Nodes.Geometry
             var rootToClass = new Dictionary<int, int>();
             int classCounter = 0;
 
-            var primClassAttr = geo.PrimAttribs.CreateAttribute(attribName, typeof(float), 0f);
+            var primClassAttr = geo.PrimAttribs.CreateAttribute(attribName, AttribType.Float, 0f);
             primClassAttr.Values.Clear();
 
             for (int i = 0; i < primCount; i++)
@@ -219,7 +219,7 @@ namespace PCGToolkit.Nodes.Geometry
             }
 
             // 为点也分配 class（使用所属第一个 Prim 的 class）
-            var pointClassAttr = geo.PointAttribs.CreateAttribute(attribName, typeof(float), 0f);
+            var pointClassAttr = geo.PointAttribs.CreateAttribute(attribName, AttribType.Float, 0f);
             var pointClass = new int[geo.Points.Count];
             for (int i = 0; i < pointClass.Length; i++) pointClass[i] = -1;
 
